@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* ---- Site color tokens (forced dark) ---- */
+:root {
+  --background: #0b0d17; /* deep navy to match the site */
+  --foreground: #ffffff; /* white text */
+}
+
+/* Tailwind v4 design tokens (keep as-is if you like) */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Smooth anchor scrolling for navbar links */
+html { scroll-behavior: smooth; }
+
+/* Global base styles */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
