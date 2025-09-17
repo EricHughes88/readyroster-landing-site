@@ -1,14 +1,14 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       {/* ===== Navbar ===== */}
       <header className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
-        <a href="/" className="flex items-center gap-3">
-          {/* Icon-only logo (white) */}
+        <Link href="/" className="flex items-center gap-3">
           <Image
             src="/rr-icon-white.png"
             alt="Ready Roster"
@@ -17,7 +17,8 @@ export default function Home() {
             priority
           />
           <span className="text-xl font-bold">Ready Roster</span>
-        </a>
+        </Link>
+
         <nav className="flex gap-6">
           <a href="#features" className="hover:text-red-400">Features</a>
           <a href="#how" className="hover:text-red-400">How it Works</a>
@@ -28,7 +29,6 @@ export default function Home() {
 
       {/* ===== Hero ===== */}
       <section className="flex flex-col items-center text-center py-20 px-6">
-        {/* Title row: icon slightly offset left */}
         <div className="flex items-center justify-center mb-4">
           <Image
             src="/rr-icon-red.png"
@@ -63,7 +63,7 @@ export default function Home() {
       </section>
 
       {/* ===== Features ===== */}
-      <section id="features" className="scroll-mt-24 py-20 px-6 bg-slate-900">
+      <section id="features" className="py-20 px-6 bg-slate-900">
         <h2 className="text-3xl font-bold text-center mb-12">Features</h2>
         <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
           <div className="p-6 bg-slate-800 rounded-xl shadow">
@@ -88,7 +88,7 @@ export default function Home() {
       </section>
 
       {/* ===== How It Works ===== */}
-      <section id="how" className="scroll-mt-24 py-20 px-6">
+      <section id="how" className="py-20 px-6">
         <h2 className="text-3xl font-bold text-center mb-12">How It Works</h2>
         <div className="max-w-4xl mx-auto space-y-6 text-slate-300">
           <p>1. Athletes create a profile with their age, weight class, and event availability.</p>
@@ -99,7 +99,7 @@ export default function Home() {
       </section>
 
       {/* ===== Pricing ===== */}
-      <section id="pricing" className="scroll-mt-24 py-20 px-6 bg-slate-900">
+      <section id="pricing" className="py-20 px-6 bg-slate-900">
         <h2 className="text-3xl font-bold text-center mb-12">Pricing</h2>
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           <div className="p-8 bg-slate-800 rounded-xl shadow text-center">
@@ -130,7 +130,7 @@ export default function Home() {
       </section>
 
       {/* ===== FAQ ===== */}
-      <section id="faq" className="scroll-mt-24 py-20 px-6">
+      <section id="faq" className="py-20 px-6">
         <h2 className="text-3xl font-bold text-center mb-12">FAQ</h2>
         <div className="max-w-3xl mx-auto space-y-6">
           <div>
@@ -157,13 +157,7 @@ export default function Home() {
       {/* ===== Footer ===== */}
       <footer className="py-8 px-6 border-t border-slate-800 text-center text-slate-400">
         <div className="flex justify-center mb-4">
-          {/* Small icon in footer */}
-          <Image
-            src="/rr-icon-white.png"
-            alt="Ready Roster Icon"
-            width={28}
-            height={28}
-          />
+          <Image src="/rr-icon-white.png" alt="Ready Roster Icon" width={28} height={28} />
         </div>
         <p>&copy; {new Date().getFullYear()} Ready Roster. All rights reserved.</p>
       </footer>
