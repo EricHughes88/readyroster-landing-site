@@ -1,10 +1,13 @@
 // app/layout.tsx
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 
-const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
-const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
+import ClientNav from "./_components/ClientNav";
+import { ToastProvider } from "./_shared/ToastProvider";
+import { GlobalOverlayProvider } from "./_shared/GlobalOverlay";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://itsreadyroster.com"),
@@ -22,14 +25,7 @@ export const metadata: Metadata = {
     title: "Ready Roster – Youth Wrestling Free-Agent Marketplace",
     description:
       "Connect athletes with teams, confirm matches, and streamline communication. Ready Roster is the digital free-agent marketplace for youth wrestling.",
-    images: [
-      {
-        url: "/og-image.png", // put this file in /public (1200x630 recommended)
-        width: 1200,
-        height: 630,
-        alt: "Ready Roster",
-      },
-    ],
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "Ready Roster" }],
   },
   twitter: {
     card: "summary_large_image",
@@ -41,11 +37,28 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#0b1220",
+};
+
+type RootLayoutProps = {
+  children: React.ReactNode;
+};
+
+export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-white`}>
-        {children}
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className="antialiased bg-slate-950 text-white">
+        <Providers>
+          <ToastProvider>
+            <GlobalOverlayProvider>
+              <ClientNav />
+              {children}
+            </GlobalOverlayProvider>
+          </ToastProvider>
+        </Providers>
       </body>
     </html>
   );

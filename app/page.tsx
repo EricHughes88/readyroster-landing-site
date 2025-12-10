@@ -1,167 +1,101 @@
-"use client";
-
-import Image from "next/image";
+// app/parent/page.tsx
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
 
-export default function Home() {
+// Ensure session is fetched at request time (no static/prerender here)
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function routeForRole(role?: string) {
+  switch ((role ?? "").toLowerCase()) {
+    case "coach":
+      return "/coach";
+    case "athlete":
+      return "/athlete";
+    case "admin":
+      return "/admin";
+    case "parent":
+      return "/parent";
+    default:
+      return null; // unknown → treat as unauthenticated
+  }
+}
+
+export default async function ParentPage() {
+  const session = await auth();
+
+  // No session → go sign in (then come back here)
+  if (!session?.user) {
+    redirect("/login?callbackUrl=/parent");
+  }
+
+  const role = (session.user as any)?.role as string | undefined;
+  const destination = routeForRole(role);
+
+  // If role is recognized but not Parent, route them to their dashboard
+  if (destination && destination !== "/parent") {
+    redirect(destination);
+  }
+
+  // Unknown role → force login to re-establish a clean session
+  if (!destination) {
+    redirect("/login?callbackUrl=/parent");
+  }
+
+  // Friendly display name
+  const displayName =
+    session.user.name ??
+    (session.user.email ? session.user.email.split("@")[0] : "Parent");
+
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      {/* ===== Navbar ===== */}
-      <header className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
-        <Link href="/" className="flex items-center gap-3">
-          <Image
-            src="/rr-icon-white.png"
-            alt="Ready Roster"
-            width={36}
-            height={36}
-            priority
-          />
-          <span className="text-xl font-bold">Ready Roster</span>
-        </Link>
+      <section className="py-10 px-6 max-w-5xl mx-auto">
+        <header className="mb-8">
+          <h1 className="text-3xl font-bold">Parent Dashboard</h1>
+          <p className="text-slate-300 mt-2">Welcome, {displayName}.</p>
+        </header>
 
-        <nav className="flex gap-6">
-          <a href="#features" className="hover:text-red-400">Features</a>
-          <a href="#how" className="hover:text-red-400">How it Works</a>
-          <a href="#pricing" className="hover:text-red-400">Pricing</a>
-          <a href="#faq" className="hover:text-red-400">FAQ</a>
-        </nav>
-      </header>
-
-      {/* ===== Hero ===== */}
-      <section className="flex flex-col items-center text-center py-20 px-6">
-        <div className="flex items-center justify-center mb-4">
-          <Image
-            src="/rr-icon-red.png"
-            alt="Ready Roster Icon"
-            width={64}
-            height={64}
-            priority
-            className="relative left-[-10px] mr-2"
-          />
-          <h1 className="text-5xl font-extrabold text-white">Ready Roster</h1>
-        </div>
-
-        <p className="text-lg text-slate-300 max-w-2xl mb-6">
-          The digital free-agent marketplace for youth wrestling. Connect athletes
-          with teams, confirm matches, and streamline communication.
-        </p>
-
-        <div className="flex gap-4">
-          <a
-            href="#get-started"
-            className="px-6 py-3 bg-red-600 rounded-lg text-white font-semibold hover:bg-red-700 transition"
-          >
-            Get Started
-          </a>
-          <a
-            href="#login"
-            className="px-6 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white font-semibold hover:bg-slate-700 transition"
-          >
-            Log In
-          </a>
-        </div>
-      </section>
-
-      {/* ===== Features ===== */}
-      <section id="features" className="py-20 px-6 bg-slate-900">
-        <h2 className="text-3xl font-bold text-center mb-12">Features</h2>
-        <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-          <div className="p-6 bg-slate-800 rounded-xl shadow">
-            <h3 className="text-xl font-semibold mb-2">Athlete Profiles</h3>
-            <p className="text-slate-300">
-              Showcase your experience, accolades, and availability to get noticed by coaches.
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+            <h2 className="text-xl font-semibold mb-2">Your Wrestlers</h2>
+            <p className="text-slate-300 mb-4">
+              View and manage wrestler profiles, interests, and messages.
             </p>
+            <div className="flex gap-3">
+              <Link
+                href="/parent/wrestlers"
+                className="px-5 py-2 rounded-lg bg-red-600 hover:bg-red-700 transition font-semibold"
+              >
+                Open Dashboard
+              </Link>
+              <Link
+                href="/parent/wrestlers/new"
+                className="px-5 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 transition font-semibold"
+              >
+                Add Wrestler
+              </Link>
+            </div>
           </div>
-          <div className="p-6 bg-slate-800 rounded-xl shadow">
-            <h3 className="text-xl font-semibold mb-2">Team Needs</h3>
-            <p className="text-slate-300">
-              Coaches can post weight class needs and instantly connect with available athletes.
-            </p>
-          </div>
-          <div className="p-6 bg-slate-800 rounded-xl shadow">
-            <h3 className="text-xl font-semibold mb-2">Messaging</h3>
-            <p className="text-slate-300">
-              Built-in chat between coaches and athletes once a match is confirmed.
-            </p>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+            <h2 className="text-xl font-semibold mb-2">Getting Started</h2>
+            <ul className="list-disc list-inside text-slate-300 space-y-2">
+              <li>Create or select a wrestler profile.</li>
+              <li>Add event interests (event, date, age group, weight class).</li>
+              <li>Review pending/confirmed matches and messages.</li>
+            </ul>
+            <div className="mt-4">
+              <Link
+                href="/parent/wrestlers"
+                className="text-red-400 hover:text-red-300 underline"
+              >
+                Go to Wrestlers
+              </Link>
+            </div>
           </div>
         </div>
       </section>
-
-      {/* ===== How It Works ===== */}
-      <section id="how" className="py-20 px-6">
-        <h2 className="text-3xl font-bold text-center mb-12">How It Works</h2>
-        <div className="max-w-4xl mx-auto space-y-6 text-slate-300">
-          <p>1. Athletes create a profile with their age, weight class, and event availability.</p>
-          <p>2. Coaches post team needs for specific events and weight classes.</p>
-          <p>3. The system matches athletes and coaches based on event + weight class.</p>
-          <p>4. Both sides confirm → once matched, messaging opens and the athlete is marked as filled.</p>
-        </div>
-      </section>
-
-      {/* ===== Pricing ===== */}
-      <section id="pricing" className="py-20 px-6 bg-slate-900">
-        <h2 className="text-3xl font-bold text-center mb-12">Pricing</h2>
-        <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-          <div className="p-8 bg-slate-800 rounded-xl shadow text-center">
-            <h3 className="text-2xl font-semibold mb-4">Athletes</h3>
-            <p className="text-slate-300 mb-6">Free to create a profile and get discovered.</p>
-            <p className="text-4xl font-bold mb-6">$10/mo</p>
-            <a
-              href="#signup"
-              className="px-6 py-3 bg-red-600 rounded-lg text-white font-semibold hover:bg-red-700 transition"
-            >
-              Get Started
-            </a>
-          </div>
-          <div className="p-8 bg-slate-800 rounded-xl shadow text-center">
-            <h3 className="text-2xl font-semibold mb-4">Coaches</h3>
-            <p className="text-slate-300 mb-6">
-              Affordable plans for unlimited team needs and athlete connections.
-            </p>
-            <p className="text-4xl font-bold mb-6">$10/mo</p>
-            <a
-              href="#signup"
-              className="px-6 py-3 bg-red-600 rounded-lg text-white font-semibold hover:bg-red-700 transition"
-            >
-              Get Started
-            </a>
-          </div>
-        </div>
-      </section>
-
-      {/* ===== FAQ ===== */}
-      <section id="faq" className="py-20 px-6">
-        <h2 className="text-3xl font-bold text-center mb-12">FAQ</h2>
-        <div className="max-w-3xl mx-auto space-y-6">
-          <div>
-            <h3 className="text-xl font-semibold">Can I do multiple events at a time?</h3>
-            <p className="text-slate-300">
-              Yes - Athlete or Coach can put their entire schedule out there and it will match them to that specific event.
-            </p>
-          </div>
-          <div>
-            <h3 className="text-xl font-semibold">Can I use it on my phone?</h3>
-            <p className="text-slate-300">
-              Yes — it works great on mobile browsers, and you can install it as an app (PWA).
-            </p>
-          </div>
-          <div>
-            <h3 className="text-xl font-semibold">What events are supported?</h3>
-            <p className="text-slate-300">
-              Any wrestling event — simply enter the event name when creating a need or profile.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ===== Footer ===== */}
-      <footer className="py-8 px-6 border-t border-slate-800 text-center text-slate-400">
-        <div className="flex justify-center mb-4">
-          <Image src="/rr-icon-white.png" alt="Ready Roster Icon" width={28} height={28} />
-        </div>
-        <p>&copy; {new Date().getFullYear()} Ready Roster. All rights reserved.</p>
-      </footer>
     </main>
   );
 }
-

@@ -1,25 +1,56 @@
-@import "tailwindcss";
+/* Tailwind v3: three directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* ---- Site color tokens (forced dark) ---- */
-:root {
-  --background: #0b0d17; /* deep navy to match the site */
-  --foreground: #ffffff; /* white text */
+/* ---------- Base defaults ---------- */
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; }
+
+  /* Map next/font variables (Geist) to real font-families */
+  body {
+    font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+      "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code, pre {
+    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo,
+      Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+
+  a { text-underline-offset: 2px; }
 }
 
-/* Tailwind v4 design tokens (keep as-is if you like) */
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* Avoid @apply inside ::selection — set raw colors instead */
+::selection { background: #334155; color: #fff; } /* slate-700 */
 
-/* Smooth anchor scrolling for navbar links */
-html { scroll-behavior: smooth; }
+/* ---------- Reusable components ---------- */
+@layer components {
+  /* Layout helpers */
+  .rr-container { @apply mx-auto max-w-md p-6; }
+  .rr-card { @apply bg-slate-900/60 backdrop-blur rounded-2xl shadow-lg p-6 ring-1 ring-slate-800; }
 
-/* Global base styles */
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Form controls */
+  .rr-label { @apply block text-sm font-medium text-slate-200; }
+  .rr-input {
+    @apply mt-1 w-full rounded-lg border border-slate-700
+           bg-slate-900 text-slate-100 placeholder-slate-400 p-2.5
+           focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500;
+  }
+
+  /* Buttons */
+  .rr-btn {
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 font-medium
+           bg-white text-slate-900 hover:bg-slate-200 active:bg-slate-300
+           disabled:opacity-60;
+  }
+  .rr-btn-primary { @apply bg-indigo-500 text-white hover:bg-indigo-400 active:bg-indigo-600; }
+
+  /* Alerts */
+  .rr-alert { @apply rounded-lg border p-3 text-sm; }
+  .rr-alert-error { @apply border-red-500/40 bg-red-500/10 text-red-200; }
+  .rr-alert-success { @apply border-green-500/40 bg-green-500/10 text-green-200; }
 }
