@@ -7,6 +7,7 @@
 "use client";
 
 import React from "react";
+import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 // Types matching your API response
@@ -45,7 +46,7 @@ function numberOr<T>(n: string | null, fallback: T): number | T {
 }
 
 function buildQuery(
-  params: URLSearchParams,
+  params: URLSearchParams | Readonly<URLSearchParams>,
   updates: Record<string, string | null | undefined>
 ) {
   const next = new URLSearchParams(params.toString());
@@ -124,7 +125,7 @@ export default function InterestsTableClient({
         if (!j.ok) throw new Error("Request failed");
         setData(j);
       })
-      .catch((e) => {
+      .catch((e: any) => {
         if (e.name !== "AbortError") setError(e.message || "Error");
       })
       .finally(() => setLoading(false));
@@ -136,7 +137,8 @@ export default function InterestsTableClient({
   // Push updates to URL (so the page is shareable/bookmarkable)
   const updateUrl = (updates: Record<string, string | null | undefined>) => {
     const next = buildQuery(sp, updates);
-    router.replace(`${pathname}?${next.toString()}`);
+    const href = `${pathname}?${next.toString()}` as Route;
+    router.replace(href);
   };
 
   // Handlers
@@ -157,7 +159,14 @@ export default function InterestsTableClient({
     setOnlyOk("");
     setLimit(defaultPageSize);
     setSort("");
-    updateUrl({ eventName: null, ageGroup: null, onlyOk: null, sort: null, offset: "0", limit: String(defaultPageSize) });
+    updateUrl({
+      eventName: null,
+      ageGroup: null,
+      onlyOk: null,
+      sort: null,
+      offset: "0",
+      limit: String(defaultPageSize),
+    });
   };
 
   const page = data?.page ?? { limit, offset: q_offset, total: 0 };
@@ -172,7 +181,8 @@ export default function InterestsTableClient({
   const toggleSort = (col: string) => {
     // sort format: "col:asc|desc"
     const [curCol, curDir] = (sort || ":").split(":");
-    const nextDir = curCol === col && curDir.toLowerCase() === "asc" ? "desc" : "asc";
+    const nextDir =
+      curCol === col && curDir.toLowerCase() === "asc" ? "desc" : "asc";
     const next = `${col}:${nextDir}`;
     updateUrl({ sort: next, offset: "0" });
   };
@@ -202,7 +212,9 @@ export default function InterestsTableClient({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Confirmed by</label>
+          <label className="block text-sm font-medium mb-1">
+            Confirmed by
+          </label>
           <select
             value={onlyOk}
             onChange={(e) => setOnlyOk(e.target.value)}
@@ -234,13 +246,38 @@ export default function InterestsTableClient({
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <Th label="Event" col="event_name" sort={sort} onSort={toggleSort} />
-              <Th label="Date" col="event_date" sort={sort} onSort={toggleSort} />
-              <Th label="Age" col="age_group" sort={sort} onSort={toggleSort} />
-              <Th label="Weight" col="weight_class" sort={sort} onSort={toggleSort} />
+              <Th
+                label="Event"
+                col="event_name"
+                sort={sort}
+                onSort={toggleSort}
+              />
+              <Th
+                label="Date"
+                col="event_date"
+                sort={sort}
+                onSort={toggleSort}
+              />
+              <Th
+                label="Age"
+                col="age_group"
+                sort={sort}
+                onSort={toggleSort}
+              />
+              <Th
+                label="Weight"
+                col="weight_class"
+                sort={sort}
+                onSort={toggleSort}
+              />
               <th className="text-left p-3">Parent ✓</th>
               <th className="text-left p-3">Coach ✓</th>
-              <Th label="Created" col="created_at" sort={sort} onSort={toggleSort} />
+              <Th
+                label="Created"
+                col="created_at"
+                sort={sort}
+                onSort={toggleSort}
+              />
             </tr>
           </thead>
           <tbody>
@@ -273,7 +310,11 @@ export default function InterestsTableClient({
                 <td className="p-3">{it.weight_class ?? "—"}</td>
                 <td className="p-3">{it.parent_ok ? "Yes" : "No"}</td>
                 <td className="p-3">{it.coach_ok ? "Yes" : "No"}</td>
-                <td className="p-3">{it.created_at ? new Date(it.created_at).toLocaleString() : "—"}</td>
+                <td className="p-3">
+                  {it.created_at
+                    ? new Date(it.created_at).toLocaleString()
+                    : "—"}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -281,7 +322,7 @@ export default function InterestsTableClient({
       </div>
 
       {/* Pagination & page size */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify_between gap-4">
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-600">Rows per page</span>
           <select
