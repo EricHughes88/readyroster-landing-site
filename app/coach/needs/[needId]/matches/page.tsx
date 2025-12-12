@@ -86,12 +86,17 @@ export default function NeedMatchesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
+  // New: sending + success message
+  const [sendingForId, setSendingForId] = useState<number | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
   // Load need + candidates
   useEffect(() => {
     if (!needId) return;
     (async () => {
       setLoading(true);
       setErr(null);
+      setActionMessage(null);
       try {
         const res = await fetch(`/api/coach/needs/${needId}/matches`, {
           cache: "no-store",
@@ -110,6 +115,58 @@ export default function NeedMatchesPage() {
       }
     })();
   }, [needId]);
+
+  // Helper to refresh after sending a request
+  const refreshMatches = async () => {
+    try {
+      const res = await fetch(`/api/coach/needs/${needId}/matches`, {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as ApiResponse;
+      if (res.ok && data.ok) {
+        setNeed(data.need);
+        setRows(data.candidates ?? []);
+      }
+    } catch (e) {
+      console.error("refreshMatches error", e);
+    }
+  };
+
+  // NEW: send match request to athlete
+  const handleSendRequest = async (c: Candidate) => {
+    if (!needId) return;
+    setErr(null);
+    setActionMessage(null);
+    setSendingForId(c.id);
+
+    try {
+      const res = await fetch(`/api/interests/${c.id}/matches`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ needId }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || data?.ok === false) {
+        throw new Error(
+          data?.message || "Failed to send match request to athlete"
+        );
+      }
+
+      setActionMessage(
+        `Match request sent to ${getWrestlerName(c)}.`
+      );
+
+      // Reload matches so the row updates to "pending"
+      await refreshMatches();
+    } catch (e: any) {
+      console.error("handleSendRequest error", e);
+      setErr(e?.message || "Failed to send match request");
+    } finally {
+      setSendingForId(null);
+    }
+  };
 
   // Filter + search + sort
   const filteredSorted = useMemo(() => {
@@ -289,6 +346,18 @@ export default function NeedMatchesPage() {
           </div>
         </div>
 
+        {/* Alerts */}
+        {err && (
+          <div className="mb-4 rounded border border-red-600 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+            {err}
+          </div>
+        )}
+        {actionMessage && (
+          <div className="mb-4 rounded border border-emerald-600 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+            {actionMessage}
+          </div>
+        )}
+
         {/* Filters / search */}
         <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
           <div className="flex items-center gap-2">
@@ -343,12 +412,6 @@ export default function NeedMatchesPage() {
         </div>
 
         {/* Error / loading / table */}
-        {err && (
-          <div className="mb-4 rounded border border-red-600 bg-red-950/40 px-4 py-3 text-sm text-red-200">
-            {err}
-          </div>
-        )}
-
         {loading ? (
           <div className="py-12 text-center text-slate-400">
             Loading matches…
@@ -404,10 +467,17 @@ export default function NeedMatchesPage() {
                 {pageRows.map((c) => {
                   const matchId = c.match_id ?? null;
                   const status = normalizeStatus(c);
+
+                  const canSendRequest =
+                    !matchId || c.match_status === null;
+
                   return (
                     <tr key={c.id} className="border-t border-slate-800">
                       <td className="px-3 py-2">
                         {getWrestlerName(c)}
+                        <div className="text-[11px] text-slate-500">
+                          ID: {c.wrestler_id ?? "—"}
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         {c.event_name ?? "—"}
@@ -419,6 +489,10 @@ export default function NeedMatchesPage() {
                       <td className="px-3 py-2">{c.age_group}</td>
                       <td className="px-3 py-2 capitalize">
                         {status}
+                        <div className="text-[11px] text-slate-500 mt-1">
+                          Parent: {c.parent_ok ? "✓" : "—"} • Coach:{" "}
+                          {c.coach_ok ? "✓" : "—"}
+                        </div>
                       </td>
                       <td className="px-3 py-2 max-w-xs">
                         <span className="line-clamp-2">
@@ -427,15 +501,13 @@ export default function NeedMatchesPage() {
                       </td>
                       <td className="px-3 py-2">
                         {matchId ? (
-                          <div className="flex gap-2">
-                            {/* Message button → same messages UI as parent side */}
+                          <div className="flex flex-wrap gap-2">
                             <Link
                               href={`/messages/match/${matchId}` as any}
                               className="px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs"
                             >
                               Message
                             </Link>
-                            {/* View match details */}
                             <Link
                               href={`/coach/matches/${matchId}` as any}
                               className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs"
@@ -444,9 +516,22 @@ export default function NeedMatchesPage() {
                             </Link>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-500">
-                            No match yet
-                          </span>
+                          <button
+                            type="button"
+                            disabled={!canSendRequest || sendingForId === c.id}
+                            onClick={() => handleSendRequest(c)}
+                            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                              sendingForId === c.id
+                                ? "bg-slate-700 text-slate-300 cursor-wait"
+                                : canSendRequest
+                                ? "bg-red-600 text-slate-950 hover:bg-red-500"
+                                : "bg-slate-800 text-slate-400 cursor-not-allowed"
+                            }`}
+                          >
+                            {sendingForId === c.id
+                              ? "Sending…"
+                              : "Send match request"}
+                          </button>
                         )}
                       </td>
                     </tr>
