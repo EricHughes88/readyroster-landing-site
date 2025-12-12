@@ -1,3 +1,4 @@
+// app/_components/ClientNav.tsx
 "use client";
 
 import Link from "next/link";
@@ -47,7 +48,20 @@ export default function ClientNav() {
     signOut({ callbackUrl: "/" });
   }
 
-  const dashHref = role === "Coach" ? "/coach" : "/parent";
+  // Dashboard destination (adjust if you later add athlete/admin dashboards)
+  const dashHref =
+    role === "Coach"
+      ? "/coach"
+      : role === "Parent"
+      ? "/parent"
+      : role === "Athlete"
+      ? "/athlete"
+      : role === "Admin"
+      ? "/admin"
+      : "/login";
+
+  // helper for mobile: close menu after clicking anchor links
+  const closeMenu = () => setMenuOpen(false);
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
@@ -57,6 +71,7 @@ export default function ClientNav() {
           href="/"
           className="flex items-center gap-3 mr-auto min-w-0"
           aria-label="Ready Roster home"
+          onClick={closeMenu}
         >
           <Image
             src="/rr-icon-white.png"
@@ -71,7 +86,7 @@ export default function ClientNav() {
           </span>
         </Link>
 
-        {/* Desktop links (only on md+) */}
+        {/* Desktop links (md+) */}
         {isHome && (
           <div className="hidden md:flex items-center gap-6 text-sm text-slate-200">
             <a href="#features" className="hover:text-red-400">
@@ -94,7 +109,7 @@ export default function ClientNav() {
           {role ? (
             <>
               <Link
-                href={dashHref}
+                href={dashHref as any} // typedRoutes fix for dynamic href
                 className="rounded-lg px-3 py-2 bg-white text-slate-900 text-sm font-semibold"
               >
                 Dashboard
@@ -142,16 +157,32 @@ export default function ClientNav() {
           <div className="mx-auto max-w-6xl px-4 py-3 space-y-3 text-sm">
             {isHome && (
               <div className="grid grid-cols-2 gap-2 text-slate-200">
-                <a href="#features" className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                <a
+                  href="#features"
+                  onClick={closeMenu}
+                  className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"
+                >
                   Features
                 </a>
-                <a href="#how" className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                <a
+                  href="#how"
+                  onClick={closeMenu}
+                  className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"
+                >
                   How it Works
                 </a>
-                <a href="#pricing" className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                <a
+                  href="#pricing"
+                  onClick={closeMenu}
+                  className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"
+                >
                   Pricing
                 </a>
-                <a href="#faq" className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                <a
+                  href="#faq"
+                  onClick={closeMenu}
+                  className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"
+                >
                   FAQ
                 </a>
               </div>
@@ -161,13 +192,17 @@ export default function ClientNav() {
               {role ? (
                 <>
                   <Link
-                    href={dashHref}
+                    href={dashHref as any} // typedRoutes fix for dynamic href
+                    onClick={closeMenu}
                     className="flex-1 text-center rounded-lg bg-white px-3 py-2 font-semibold text-slate-900"
                   >
                     Dashboard
                   </Link>
                   <button
-                    onClick={handleLogout}
+                    onClick={() => {
+                      closeMenu();
+                      handleLogout();
+                    }}
                     className="flex-1 rounded-lg bg-slate-800 px-3 py-2 font-semibold text-white"
                   >
                     Log out
@@ -177,12 +212,14 @@ export default function ClientNav() {
                 <>
                   <Link
                     href="/login"
+                    onClick={closeMenu}
                     className="flex-1 text-center rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-semibold text-white"
                   >
                     Log In
                   </Link>
                   <Link
                     href="/create-account"
+                    onClick={closeMenu}
                     className="flex-1 text-center rounded-lg bg-gradient-to-b from-[#ff3b3b] to-[#e31d2d] px-3 py-2 font-semibold text-white"
                   >
                     Get Started
