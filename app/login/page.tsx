@@ -14,16 +14,12 @@ type RRSavedUser = {
   role: "Coach" | "Parent" | "Athlete" | "Admin";
 };
 
-// Normalize any role string from the DB / session into
-// one of our canonical values with capitalized first letter.
+// Normalize any role string from the DB / session
 function normalizeRole(rawRole: unknown): RRSavedUser["role"] {
   const r = String(rawRole || "").trim().toLowerCase();
-
   if (r === "coach") return "Coach";
   if (r === "athlete") return "Athlete";
   if (r === "admin") return "Admin";
-
-  // default / fallback
   return "Parent";
 }
 
@@ -60,7 +56,6 @@ export default function LoginPage() {
   const search = useSearchParams();
 
   const rawCallback = search.get("callbackUrl");
-  // Only trust relative paths; otherwise ignore
   const callbackUrl =
     rawCallback && rawCallback.startsWith("/") ? rawCallback : null;
 
@@ -69,10 +64,11 @@ export default function LoginPage() {
   const [err, setErr] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // Map NextAuth ?error= codes → friendly text
+  // Map NextAuth errors → friendly text
   useEffect(() => {
     const e = search.get("error");
     if (!e) return setErr(null);
+
     const map: Record<string, string> = {
       CredentialsSignin: "Invalid email or password.",
       missing_credentials: "Please provide both email and password.",
@@ -80,23 +76,19 @@ export default function LoginPage() {
       bad_password: "Invalid email or password.",
       default: "Could not sign in. Please try again.",
     };
+
     setErr(map[e] ?? map.default);
   }, [search]);
 
-  // If already logged in, hydrate rr_user and bounce to correct dashboard
+  // If already logged in, redirect appropriately
   useEffect(() => {
     (async () => {
       const u = await fetchSessionUser();
-      if (!u) return; // not logged in yet
+      if (!u) return;
 
-      if (callbackUrl) {
-        router.replace(callbackUrl as any);
-      } else if (u.role === "Coach") {
-        router.replace("/coach" as any);
-      } else {
-        // Parent & Athlete currently share the parent dashboard
-        router.replace("/parent" as any);
-      }
+      if (callbackUrl) router.replace(callbackUrl as any);
+      else if (u.role === "Coach") router.replace("/coach" as any);
+      else router.replace("/parent" as any);
     })();
   }, [router, callbackUrl]);
 
@@ -108,7 +100,7 @@ export default function LoginPage() {
       const result = await signIn("credentials", {
         email,
         password,
-        redirect: false, // we control redirect
+        redirect: false,
         callbackUrl: callbackUrl ?? "/",
       });
 
@@ -130,22 +122,29 @@ export default function LoginPage() {
         return;
       }
 
-      if (callbackUrl) {
-        router.push(callbackUrl as any);
-      } else if (u.role === "Coach") {
-        router.push("/coach" as any);
-      } else {
-        // Parent & Athlete currently share the parent dashboard
-        router.push("/parent" as any);
-      }
+      if (callbackUrl) router.push(callbackUrl as any);
+      else if (u.role === "Coach") router.push("/coach" as any);
+      else router.push("/parent" as any);
     });
   }
 
   return (
     <main className="rr-container">
+      {/* ✅ Back to Home */}
+      <div className="mb-4">
+        <Link
+          href="/"
+          className="text-sm text-slate-400 hover:text-white underline"
+        >
+          ← Back to Home
+        </Link>
+      </div>
+
       <div className="rr-card">
         <h1 className="text-2xl font-semibold mb-2">Log in</h1>
-        <p className="text-slate-300 mb-6">Welcome back to Ready Roster.</p>
+        <p className="text-slate-300 mb-6">
+          Welcome back to Ready Roster.
+        </p>
 
         {err && <div className="rr-alert rr-alert-error mb-4">{err}</div>}
 
@@ -189,6 +188,13 @@ export default function LoginPage() {
           Don’t have an account?{" "}
           <Link href="/create-account" className="text-white underline">
             Create one
+          </Link>
+        </div>
+
+        {/* Optional subtle footer link */}
+        <div className="mt-4 text-center text-xs text-slate-400">
+          <Link href="/" className="hover:text-slate-200">
+            Return to itsreadyroster.com
           </Link>
         </div>
       </div>
