@@ -14,7 +14,12 @@ export function getSessionUser(): RRUser | null {
     if (!raw) return null;
     const u = JSON.parse(raw);
     if (!u || typeof u !== "object") return null;
-    return u as RRUser;
+
+    // Safety: ensure id is a number
+    const idNum = Number((u as any).id);
+    if (!Number.isFinite(idNum) || idNum <= 0) return null;
+
+    return { ...(u as RRUser), id: idNum };
   } catch {
     return null;
   }
@@ -37,12 +42,16 @@ export function buildMatchesQS(opts: {
   wrestlerId?: string | null;
 }) {
   const { user, status, needId, wrestlerId } = opts;
+
   const qs = new URLSearchParams();
 
   if (userIsCoach(user)) qs.set("coachUserId", String(user.id));
   if (userIsParent(user)) qs.set("parentUserId", String(user.id));
 
+  // ✅ IMPORTANT: Always include status explicitly.
+  // This keeps the UI tabs + URL + API fully in sync.
   qs.set("status", status);
+
   if (needId) qs.set("needId", needId);
   if (wrestlerId) qs.set("wrestlerId", wrestlerId);
 
