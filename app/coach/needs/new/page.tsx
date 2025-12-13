@@ -1,6 +1,8 @@
 // app/coach/needs/new/page.tsx
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
@@ -10,7 +12,12 @@ import { useOverlay } from "@/app/_shared/GlobalOverlay";
 
 export default function NewNeedPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+
+  // ✅ Safe: never destructure directly from useSession()
+  const sessionHook = useSession();
+  const session = sessionHook?.data;
+  const status = sessionHook?.status ?? "loading";
+
   const { addToast } = useToast();
   const { withOverlay } = useOverlay();
 
@@ -48,7 +55,8 @@ export default function NewNeedPage() {
       event_date: (form.get("event_date") || "").toString().trim() || null,
       city: ((form.get("city") || "") as string).toString().trim() || null,
       state:
-        ((form.get("state") || "") as string).toString().trim().toUpperCase() || null,
+        ((form.get("state") || "") as string).toString().trim().toUpperCase() ||
+        null,
       notes: ((form.get("notes") || "") as string).toString().trim() || null,
     };
 

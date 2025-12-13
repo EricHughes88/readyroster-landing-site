@@ -1,6 +1,8 @@
 // app/parent/wrestlers/page.tsx
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
@@ -15,8 +17,12 @@ type Wrestler = {
 };
 
 export default function ParentWrestlersPage() {
-  const { data: session, status } = useSession();
   const router = useRouter();
+
+  // ✅ Safe: never destructure directly from useSession()
+  const sessionHook = useSession();
+  const session = sessionHook?.data;
+  const status = sessionHook?.status ?? "loading";
 
   const [loading, setLoading] = useState(true);
   const [wrestlers, setWrestlers] = useState<Wrestler[]>([]);
@@ -36,6 +42,9 @@ export default function ParentWrestlersPage() {
 
     (async () => {
       try {
+        setLoading(true);
+        setErr(null);
+
         const res = await fetch(`/api/parent/${userId}/wrestlers`, {
           cache: "no-store",
         });
@@ -48,9 +57,7 @@ export default function ParentWrestlersPage() {
           } catch {
             text = await res.text();
           }
-          throw new Error(
-            `Failed to load wrestlers (${res.status}): ${text}`
-          );
+          throw new Error(`Failed to load wrestlers (${res.status}): ${text}`);
         }
 
         const data = await res.json();
@@ -63,9 +70,13 @@ export default function ParentWrestlersPage() {
     })();
   }, [status, session, router]);
 
-  if (status === "loading" || loading)
+  if (status === "loading" || loading) {
     return <div className="p-6">Loading wrestlers…</div>;
-  if (err) return <div className="p-6 text-red-600">Error: {err}</div>;
+  }
+
+  if (err) {
+    return <div className="p-6 text-red-600">Error: {err}</div>;
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -89,17 +100,13 @@ export default function ParentWrestlersPage() {
           {wrestlers.map((w) => (
             <li key={w.id} className="border rounded p-4">
               <div className="font-medium">
-                {(w.first_name ?? "").trim()}{" "}
-                {(w.last_name ?? "").trim()}
+                {(w.first_name ?? "").trim()} {(w.last_name ?? "").trim()}
               </div>
               <div className="text-sm text-gray-600">
                 {w.age_group ?? "—"} · {w.weight_class ?? "—"}
               </div>
               <div className="mt-2 flex gap-3 text-sm">
-                <Link
-                  href={`/parent/wrestlers/${w.id}`}
-                  className="underline"
-                >
+                <Link href={`/parent/wrestlers/${w.id}`} className="underline">
                   View
                 </Link>
                 <Link
@@ -108,10 +115,7 @@ export default function ParentWrestlersPage() {
                 >
                   Interests
                 </Link>
-                <Link
-                  href={`/parent/wrestlers/${w.id}/matches`}
-                  className="underline"
-                >
+                <Link href={`/parent/wrestlers/${w.id}/matches`} className="underline">
                   Matches
                 </Link>
                 <Link

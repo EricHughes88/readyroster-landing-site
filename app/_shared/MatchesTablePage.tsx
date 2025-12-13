@@ -434,7 +434,7 @@ export default function MatchesTablePage() {
       <div className="mx-auto max-w-6xl px-4 py-8">
         {/* Header + status tabs + export/back */}
         <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
-          <h1 className="text-2xl font-semibold">Matches (NEW UI TEST)</h1>
+          <h1 className="text-2xl font-semibold">Matches</h1>
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setStatus("pending")}
