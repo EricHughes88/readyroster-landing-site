@@ -20,10 +20,15 @@ export default function Home() {
         </Link>
 
         <nav className="flex gap-6">
-          <a href="#features" className="hover:text-red-400">Features</a>
-          <a href="#how" className="hover:text-red-400">How it Works</a>
-          <a href="#pricing" className="hover:text-red-400">Pricing</a>
-          <a href="#faq" className="hover:text-red-400">FAQ</a>
+          <a href="#features" className="hover:text-red-400">
+            Features
+          </a>
+          <a href="#how" className="hover:text-red-400">
+            How it Works
+          </a>
+          <a href="#faq" className="hover:text-red-400">
+            FAQ
+          </a>
           <Link href="/login" className="hover:text-red-400 font-semibold">
             Log In
           </Link>
@@ -45,8 +50,8 @@ export default function Home() {
         </div>
 
         <p className="text-lg text-slate-300 max-w-2xl mb-6">
-          The digital free-agent marketplace for youth wrestling. Connect athletes
-          with teams, confirm matches, and streamline communication.
+          The digital free-agent marketplace for youth wrestling. Connect
+          athletes with teams, confirm matches, and streamline communication.
         </p>
 
         <div className="flex gap-4">
@@ -89,32 +94,13 @@ export default function Home() {
       <section id="how" className="scroll-mt-24 py-20 px-6">
         <h2 className="text-3xl font-bold text-center mb-12">How It Works</h2>
         <div className="max-w-4xl mx-auto space-y-6 text-slate-300">
-          <p>1. Athletes create a profile with their age, weight class, and availability.</p>
+          <p>
+            1. Athletes create a profile with their age, weight class, and
+            availability.
+          </p>
           <p>2. Coaches post team needs for specific events.</p>
           <p>3. Ready Roster matches athletes and coaches.</p>
           <p>4. Both sides confirm → messaging opens.</p>
-        </div>
-      </section>
-
-      {/* ===== Pricing ===== */}
-      <section id="pricing" className="scroll-mt-24 py-20 px-6 bg-slate-900">
-        <h2 className="text-3xl font-bold text-center mb-12">Pricing</h2>
-        <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-          {["Athletes", "Coaches"].map((role) => (
-            <div
-              key={role}
-              className="p-8 bg-slate-800 rounded-xl shadow text-center"
-            >
-              <h3 className="text-2xl font-semibold mb-4">{role}</h3>
-              <p className="text-slate-300 mb-6">$10 / month</p>
-              <Link
-                href="/create-account"
-                className="px-6 py-3 bg-red-600 rounded-lg text-white font-semibold hover:bg-red-700 transition"
-              >
-                Get Started
-              </Link>
-            </div>
-          ))}
         </div>
       </section>
 

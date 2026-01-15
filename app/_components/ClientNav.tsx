@@ -95,9 +95,6 @@ export default function ClientNav() {
             <a href="#how" className="hover:text-red-400">
               How it Works
             </a>
-            <a href="#pricing" className="hover:text-red-400">
-              Pricing
-            </a>
             <a href="#faq" className="hover:text-red-400">
               FAQ
             </a>
@@ -170,13 +167,6 @@ export default function ClientNav() {
                   className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"
                 >
                   How it Works
-                </a>
-                <a
-                  href="#pricing"
-                  onClick={closeMenu}
-                  className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"
-                >
-                  Pricing
                 </a>
                 <a
                   href="#faq"
