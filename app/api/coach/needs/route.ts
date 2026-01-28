@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Pool } from "pg";
+import { normalizeAgeGroup } from "@/lib/normalizeAgeGroup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,27 +96,22 @@ function normalizeDate(input?: string | Date | null): string | null {
 export async function GET(req: Request) {
   try {
     if (!pool) {
-      return NextResponse.json(
-        { ok: true, needs: [] },
-        { status: 200 }
-      );
+      return NextResponse.json({ ok: true, needs: [] }, { status: 200 });
     }
 
     const { searchParams } = new URL(req.url);
     const coachUserId = Number(searchParams.get("coachUserId") || "");
 
     if (!coachUserId) {
-      return NextResponse.json(
-        { ok: false, message: "coachUserId is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, message: "coachUserId is required" }, { status: 400 });
     }
 
     const client = await pool.connect();
     try {
       const res = await client.query(
         `SELECT id, coach_user_id, event_name, event_date,
-                weight_class, age_group, city, state, notes, is_open, created_at
+                weight_class, age_group, age_group_key,
+                city, state, notes, is_open, created_at
            FROM public.coach_needs
           WHERE coach_user_id = $1
           ORDER BY created_at DESC`,
@@ -136,10 +132,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     if (!pool) {
-      return NextResponse.json(
-        { ok: false, message: "Database not configured" },
-        { status: 500 }
-      );
+      return NextResponse.json({ ok: false, message: "Database not configured" }, { status: 500 });
     }
 
     const raw = await readBody(req);
@@ -148,7 +141,6 @@ export async function POST(req: Request) {
 
     const parsed = NewNeedSchema.safeParse(raw);
     if (!parsed.success) {
-      // Surface zod messages for debugging in the client
       return NextResponse.json(
         { ok: false, message: "Invalid input", issues: parsed.error.issues },
         { status: 400 }
@@ -156,13 +148,16 @@ export async function POST(req: Request) {
     }
 
     const v = parsed.data;
-    const client = await pool.connect();
 
+    // ✅ NEW: compute normalized key
+    const ageKey = normalizeAgeGroup(v.age_group);
+
+    const client = await pool.connect();
     try {
       const res = await client.query(
         `INSERT INTO public.coach_needs
-           (coach_user_id, event_name, event_date, weight_class, age_group, city, state, notes, is_open)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8, true)
+           (coach_user_id, event_name, event_date, weight_class, age_group, age_group_key, city, state, notes, is_open)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, true)
          RETURNING id`,
         [
           v.coachUserId,
@@ -170,6 +165,7 @@ export async function POST(req: Request) {
           v.event_date ?? null,
           v.weight_class,
           v.age_group,
+          ageKey ?? null,
           v.city ?? null,
           v.state ?? null,
           v.notes ?? null,
