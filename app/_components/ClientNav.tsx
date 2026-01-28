@@ -13,6 +13,13 @@ export default function ClientNav() {
   const { data: session } = useSession();
   const pathname = usePathname();
 
+  // Hide nav on auth pages
+  const hideNav =
+    pathname === "/login" ||
+    pathname === "/create-account";
+
+  if (hideNav) return null;
+
   const [localRole, setLocalRole] = useState<RRRole | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -25,9 +32,11 @@ export default function ClientNav() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.role) setLocalRole(parsed.role as RRRole);
+      } else {
+        setLocalRole(null);
       }
     } catch {
-      // ignore
+      setLocalRole(null);
     }
   }, []);
 
@@ -39,13 +48,19 @@ export default function ClientNav() {
   const sessionRole = (session?.user && (session.user as any).role) || null;
   const role: RRRole | null = (sessionRole as RRRole) ?? localRole;
 
-  function handleLogout() {
+  async function handleLogout() {
     try {
+      // Clear local bootstrap user (prevents stale UI)
       localStorage.removeItem("rr_user");
+
+      // Optional: clear any other per-user keys you might store
+      localStorage.removeItem("rr_selected_wrestler_id");
     } catch {
       // ignore
     }
-    signOut({ callbackUrl: "/" });
+
+    // Clear NextAuth session + redirect to login
+    await signOut({ callbackUrl: "/login" });
   }
 
   // Dashboard destination (adjust if you later add athlete/admin dashboards)
@@ -113,7 +128,7 @@ export default function ClientNav() {
               </Link>
               <button
                 onClick={handleLogout}
-                className="rounded-lg px-3 py-2 bg-slate-800 text-white text-sm font-semibold"
+                className="rounded-lg px-3 py-2 bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 transition"
               >
                 Log out
               </button>
@@ -193,7 +208,7 @@ export default function ClientNav() {
                       closeMenu();
                       handleLogout();
                     }}
-                    className="flex-1 rounded-lg bg-slate-800 px-3 py-2 font-semibold text-white"
+                    className="flex-1 rounded-lg bg-slate-800 px-3 py-2 font-semibold text-white hover:bg-slate-700 transition"
                   >
                     Log out
                   </button>
