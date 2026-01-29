@@ -3,18 +3,13 @@
 const nextConfig = {
   reactStrictMode: true,
 
-  // Configure external images here if you use them.
-  // Remove/keep empty if you only serve local images.
+  // ✅ This will make production console errors show real file/line numbers
+  productionBrowserSourceMaps: true,
+
   images: {
-    remotePatterns: [
-      // Example:
-      // { protocol: 'https', hostname: 'images.unsplash.com' },
-      // { protocol: 'https', hostname: 'itsreadyroster.com' },
-    ],
+    remotePatterns: [],
   },
 
-  // On Next 14, typedRoutes is under `experimental`.
-  // Delete this block if you don't want typed route checks.
   experimental: {
     typedRoutes: true,
   },
