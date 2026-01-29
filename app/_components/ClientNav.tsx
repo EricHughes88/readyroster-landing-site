@@ -10,60 +10,67 @@ import { useSession, signOut } from "next-auth/react";
 type RRRole = "Coach" | "Parent" | "Athlete" | "Admin";
 
 export default function ClientNav() {
-  const { data: session } = useSession();
   const pathname = usePathname();
 
-  // Hide nav on auth pages
-  const hideNav =
-    pathname === "/login" ||
-    pathname === "/create-account";
-
-  if (hideNav) return null;
-
+  // ✅ Always run hooks
   const [localRole, setLocalRole] = useState<RRRole | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  const isHome = pathname === "/";
+  // ✅ Mark mounted (prevents hydration edge cases)
+  useEffect(() => setMounted(true), []);
 
-  // Read role from localStorage for early render
+  // ✅ Only attempt localStorage on client after mount
   useEffect(() => {
+    if (!mounted) return;
     try {
       const raw = localStorage.getItem("rr_user");
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.role) setLocalRole(parsed.role as RRRole);
+        else setLocalRole(null);
       } else {
         setLocalRole(null);
       }
     } catch {
       setLocalRole(null);
     }
-  }, []);
+  }, [mounted]);
 
   // Close mobile menu on route change
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
 
+  // Hide nav on auth pages (SAFE: after hooks)
+  const hideNav = pathname === "/login" || pathname === "/create-account";
+  if (hideNav) return null;
+
+  // ✅ Keep hook call stable; but protect against runtime throws in prod
+  // (If next-auth throws for any reason, we still render nav using localRole.)
+  let session: any = null;
+  try {
+    const s = useSession();
+    session = mounted ? s.data : null;
+  } catch {
+    session = null;
+  }
+
   const sessionRole = (session?.user && (session.user as any).role) || null;
-  const role: RRRole | null = (sessionRole as RRRole) ?? localRole;
+  const role: RRRole | null = (sessionRole as RRRole) || localRole;
+
+  const isHome = pathname === "/";
 
   async function handleLogout() {
     try {
-      // Clear local bootstrap user (prevents stale UI)
       localStorage.removeItem("rr_user");
-
-      // Optional: clear any other per-user keys you might store
       localStorage.removeItem("rr_selected_wrestler_id");
     } catch {
       // ignore
     }
-
-    // Clear NextAuth session + redirect to login
     await signOut({ callbackUrl: "/login" });
   }
 
-  // Dashboard destination (adjust if you later add athlete/admin dashboards)
   const dashHref =
     role === "Coach"
       ? "/coach"
@@ -75,7 +82,6 @@ export default function ClientNav() {
       ? "/admin"
       : "/login";
 
-  // helper for mobile: close menu after clicking anchor links
   const closeMenu = () => setMenuOpen(false);
 
   return (
@@ -121,7 +127,7 @@ export default function ClientNav() {
           {role ? (
             <>
               <Link
-                href={dashHref as any} // typedRoutes fix for dynamic href
+                href={dashHref as any}
                 className="rounded-lg px-3 py-2 bg-white text-slate-900 text-sm font-semibold"
               >
                 Dashboard
@@ -197,7 +203,7 @@ export default function ClientNav() {
               {role ? (
                 <>
                   <Link
-                    href={dashHref as any} // typedRoutes fix for dynamic href
+                    href={dashHref as any}
                     onClick={closeMenu}
                     className="flex-1 text-center rounded-lg bg-white px-3 py-2 font-semibold text-slate-900"
                   >

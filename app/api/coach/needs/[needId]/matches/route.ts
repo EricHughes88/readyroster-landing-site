@@ -1,6 +1,6 @@
-// app/api/coach/needs/[needId]/matches/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { normalizeAgeGroup } from "@/lib/normalizeAgeGroup";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +13,10 @@ type Candidate = {
   event_date: string | null;
   weight_class: string;
   age_group: string;
+  age_group_key: string | null;
   notes: string | null;
   match_id?: number | null;
-  match_status?: "pending" | "confirmed" | "declined" | null;
+  match_status?: "pending" | "confirmed" | "declined" | "cancelled" | null;
   parent_ok?: boolean | null;
   coach_ok?: boolean | null;
 };
@@ -27,15 +28,8 @@ type ApiResponse = {
   message?: string;
 };
 
-function jsonError(
-  message: string,
-  status = 500,
-  extra?: Record<string, unknown>
-) {
-  return NextResponse.json<ApiResponse>(
-    { ok: false, message, ...extra },
-    { status }
-  );
+function jsonError(message: string, status = 500, extra?: Record<string, unknown>) {
+  return NextResponse.json<ApiResponse>({ ok: false, message, ...extra }, { status });
 }
 
 // GET /api/coach/needs/[needId]/matches
@@ -45,20 +39,16 @@ export async function GET(
 ) {
   try {
     const { needId: rawNeedId } = await ctx.params;
-    if (!rawNeedId) {
-      return jsonError("Missing needId in route.", 400);
-    }
+    if (!rawNeedId) return jsonError("Missing needId in route.", 400);
 
     const needId = Number(rawNeedId);
     if (!Number.isFinite(needId) || needId <= 0) {
-      return jsonError("Invalid needId. Must be a positive number.", 400, {
-        needId: rawNeedId,
-      });
+      return jsonError("Invalid needId. Must be a positive number.", 400, { needId: rawNeedId });
     }
 
     const client = await pool.connect();
     try {
-      // 1) Load the coach need record
+      // 1) Load need
       const needRes = await client.query(
         `
         SELECT
@@ -67,6 +57,7 @@ export async function GET(
           event_name,
           event_date,
           age_group,
+          age_group_key,
           weight_class,
           city,
           state,
@@ -77,13 +68,15 @@ export async function GET(
         [needId]
       );
 
-      if (needRes.rowCount === 0) {
-        return jsonError("Need not found.", 404);
-      }
+      if (needRes.rowCount === 0) return jsonError("Need not found.", 404);
 
       const need = needRes.rows[0];
 
-      // 2) Find wrestler interests that match this need
+      // If key is missing (older rows), derive it on the fly (and you can backfill later)
+      const needAgeKey: string | null =
+        need.age_group_key ?? normalizeAgeGroup(need.age_group) ?? null;
+
+      // 2) Find matching interests by KEY
       const matchesRes = await client.query<Candidate>(
         `
         SELECT
@@ -95,6 +88,7 @@ export async function GET(
           wi.event_date,
           wi.weight_class,
           wi.age_group,
+          wi.age_group_key,
           wi.notes,
           m.id          AS match_id,
           m.status      AS match_status,
@@ -106,11 +100,13 @@ export async function GET(
          AND m.coach_need_id = $1
         LEFT JOIN wrestlers w
           ON w.id = wi.wrestler_id
-        WHERE wi.event_name  = $2
+        WHERE wi.event_name = $2
           AND wi.weight_class = $3
-          AND wi.age_group    = $4
+          AND (
+            wi.age_group_key = $4
+            OR (wi.age_group_key IS NULL AND wi.age_group = $5)
+          )
         ORDER BY
-          -- show unmatched interests first, then by name
           (m.id IS NOT NULL),
           w.last_name NULLS LAST,
           w.first_name NULLS LAST,
@@ -120,16 +116,13 @@ export async function GET(
           needId,
           need.event_name,
           need.weight_class,
-          need.age_group,
+          needAgeKey,
+          need.age_group, // fallback for old data before backfill
         ]
       );
 
       return NextResponse.json<ApiResponse>(
-        {
-          ok: true,
-          need,
-          candidates: matchesRes.rows,
-        },
+        { ok: true, need, candidates: matchesRes.rows },
         { status: 200 }
       );
     } finally {

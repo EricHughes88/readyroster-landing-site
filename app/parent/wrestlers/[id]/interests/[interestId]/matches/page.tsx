@@ -4,7 +4,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Interest = {
   id: number;
@@ -16,8 +16,13 @@ type Interest = {
   notes: string | null;
 };
 
+// Keep your original shape, but allow the API to send need id under different names.
 type MatchRow = {
-  id: number; // coach_need id
+  // sometimes API returns need id as id, need_id, or needId
+  id?: number;
+  need_id?: number;
+  needId?: number;
+
   event_name: string;
   event_date: string | null;
   weight_class: string;
@@ -29,18 +34,78 @@ type MatchRow = {
   coach_email: string | null;
   team_name: string | null;
 
-  // surfaced by the API from public.matches (if one already exists)
   match_id?: number | null;
   match_status?: "pending" | "confirmed" | "declined" | null;
   parent_ok?: boolean | null;
   coach_ok?: boolean | null;
 };
 
+type NormalizedRow = MatchRow & { __needId: number };
+
 function fmtDate(iso?: string | null) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString();
+}
+
+function normalizeNeedId(r: MatchRow): number {
+  const maybe =
+    (r as any)?.id ??
+    (r as any)?.need_id ??
+    (r as any)?.needId ??
+    0;
+
+  const n = Number(maybe);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Dedupe by normalized need id. If duplicates exist:
+ * - Prefer rows with match_id
+ * - Prefer confirmed > pending > declined > none
+ */
+function dedupeAndNormalize(input: unknown): NormalizedRow[] {
+  const list = Array.isArray(input) ? (input as MatchRow[]) : [];
+
+  const rank = (r: MatchRow) => {
+    const hasMatch = r.match_id ? 1 : 0;
+    const statusScore =
+      r.match_status === "confirmed"
+        ? 3
+        : r.match_status === "pending"
+        ? 2
+        : r.match_status === "declined"
+        ? 1
+        : 0;
+    return hasMatch * 10 + statusScore;
+  };
+
+  const byNeed = new Map<number, NormalizedRow>();
+  const order: number[] = [];
+
+  for (const r of list) {
+    if (!r) continue;
+
+    const needId = normalizeNeedId(r);
+    if (!needId) continue;
+
+    const normalized: NormalizedRow = { ...r, __needId: needId };
+
+    if (!byNeed.has(needId)) order.push(needId);
+
+    const prev = byNeed.get(needId);
+    if (!prev || rank(normalized) > rank(prev)) {
+      byNeed.set(needId, normalized);
+    }
+  }
+
+  const out: NormalizedRow[] = [];
+  for (const needId of order) {
+    const row = byNeed.get(needId);
+    if (row) out.push(row);
+  }
+  return out;
 }
 
 export default function MatchesPage() {
@@ -51,7 +116,7 @@ export default function MatchesPage() {
   const router = useRouter();
 
   const [interest, setInterest] = useState<Interest | null>(null);
-  const [rows, setRows] = useState<MatchRow[]>([]);
+  const [rows, setRows] = useState<NormalizedRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyNeedId, setBusyNeedId] = useState<number | null>(null);
@@ -59,19 +124,28 @@ export default function MatchesPage() {
   async function load() {
     setLoading(true);
     setError(null);
+
     try {
       const res = await fetch(`/api/interests/${interestId}/matches`, {
         cache: "no-store",
       });
-      const data = await res.json();
+
+      const data = await res
+        .json()
+        .catch(() => ({ ok: false, message: "Invalid JSON response." }));
+
       if (!res.ok || !data?.ok) {
         setError(data?.message || "Failed to load matches.");
+        setInterest(null);
+        setRows([]);
       } else {
         setInterest(data.interest ?? null);
-        setRows(Array.isArray(data.matches) ? data.matches : []);
+        setRows(dedupeAndNormalize(data.matches));
       }
     } catch {
       setError("Network error loading matches.");
+      setInterest(null);
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -85,21 +159,26 @@ export default function MatchesPage() {
   async function handleCreateMatch(needId: number) {
     try {
       setBusyNeedId(needId);
+
       const res = await fetch("/api/matches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           interestId: Number(interestId),
           needId,
-          // server sets parent_ok=true, coach_ok=false, status='pending'
         }),
       });
-      const data = await res.json();
+
+      const data = await res
+        .json()
+        .catch(() => ({ ok: false, message: "Invalid JSON response." }));
+
       if (!res.ok || !data?.ok) {
         alert(data?.message || "Could not create match.");
         return;
       }
-      await load(); // refresh list to show "Pending"
+
+      await load();
     } finally {
       setBusyNeedId(null);
     }
@@ -115,6 +194,7 @@ export default function MatchesPage() {
           >
             ← Back to dashboard
           </button>
+
           <Link
             href={`/parent/wrestlers/${wrestlerId}/interests` as Route}
             className="hover:text-white"
@@ -126,7 +206,7 @@ export default function MatchesPage() {
         <div className="flex items-center gap-3 mb-2">
           <h1 className="text-2xl font-semibold">Potential Matches</h1>
           <button
-            className="rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
+            className="rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700 disabled:opacity-60"
             onClick={load}
             disabled={loading}
           >
@@ -142,7 +222,8 @@ export default function MatchesPage() {
             <span className="font-semibold">
               {interest.event_name || "Event"}
             </span>{" "}
-            on <span className="font-semibold">{fmtDate(interest.event_date)}</span>
+            on{" "}
+            <span className="font-semibold">{fmtDate(interest.event_date)}</span>
           </p>
         )}
 
@@ -168,6 +249,7 @@ export default function MatchesPage() {
                 <th className="text-left px-3 py-2">Action</th>
               </tr>
             </thead>
+
             <tbody>
               {!loading && rows.length === 0 && (
                 <tr>
@@ -181,15 +263,14 @@ export default function MatchesPage() {
               )}
 
               {rows.map((m) => {
+                const needId = m.__needId;
+
                 const hasMatch = !!m.match_id;
                 const isConfirmed = m.match_status === "confirmed";
                 const isPending = m.match_status === "pending";
 
                 return (
-                  <tr
-                    key={`${m.id}-${m.match_id ?? "new"}`}
-                    className="border-t border-slate-800"
-                  >
+                  <tr key={`need-${needId}`} className="border-t border-slate-800">
                     <td className="px-3 py-2">{m.team_name || "—"}</td>
                     <td className="px-3 py-2">{m.coach_name || "—"}</td>
                     <td className="px-3 py-2">{m.event_name}</td>
@@ -200,6 +281,7 @@ export default function MatchesPage() {
                       {[m.city, m.state].filter(Boolean).join(", ") || "—"}
                     </td>
                     <td className="px-3 py-2 text-slate-400">{m.notes || "—"}</td>
+
                     <td className="px-3 py-2">
                       {m.coach_email ? (
                         <a
@@ -214,6 +296,7 @@ export default function MatchesPage() {
                         "—"
                       )}
                     </td>
+
                     <td className="px-3 py-2">
                       {isConfirmed ? (
                         <Link
@@ -229,10 +312,10 @@ export default function MatchesPage() {
                       ) : (
                         <button
                           className="px-3 py-1 rounded bg-red-600 hover:bg-red-500 disabled:opacity-50"
-                          disabled={busyNeedId === m.id}
-                          onClick={() => handleCreateMatch(m.id)}
+                          disabled={busyNeedId === needId}
+                          onClick={() => handleCreateMatch(needId)}
                         >
-                          {busyNeedId === m.id ? "Creating…" : "Create Match"}
+                          {busyNeedId === needId ? "Creating…" : "Create Match"}
                         </button>
                       )}
                     </td>
@@ -242,6 +325,9 @@ export default function MatchesPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Debug hint (optional): shows if API is returning rows without a usable need id) */}
+        {/* <pre className="mt-4 text-xs text-slate-400">{JSON.stringify(rows, null, 2)}</pre> */}
       </div>
     </main>
   );
