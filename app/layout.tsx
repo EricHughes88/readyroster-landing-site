@@ -14,11 +14,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body className="min-h-screen bg-slate-950 text-white">
         <AppProviders>
-          {/* DEBUG STRIP — REMOVE AFTER CONFIRMATION */}
-          <div className="bg-red-600 text-white text-xs px-3 py-1">
-            NAV MOUNTED
-          </div>
-
           <ClientNav />
           {children}
         </AppProviders>
@@ -26,4 +21,3 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     </html>
   );
 }
-

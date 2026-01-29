@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import Image from "next/image";
@@ -6,34 +7,7 @@ import Link from "next/link";
 export default function Home() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      {/* ===== Navbar ===== */}
-      <header className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
-        <Link href="/" className="flex items-center gap-3">
-          <Image
-            src="/rr-icon-white.png"
-            alt="Ready Roster"
-            width={36}
-            height={36}
-            priority
-          />
-          <span className="text-xl font-bold">Ready Roster</span>
-        </Link>
-
-        <nav className="flex gap-6">
-          <a href="#features" className="hover:text-red-400">
-            Features
-          </a>
-          <a href="#how" className="hover:text-red-400">
-            How it Works
-          </a>
-          <a href="#faq" className="hover:text-red-400">
-            FAQ
-          </a>
-          <Link href="/login" className="hover:text-red-400 font-semibold">
-            Log In
-          </Link>
-        </nav>
-      </header>
+      {/* ✅ Navbar removed — handled globally by ClientNav in app/layout.tsx */}
 
       {/* ===== Hero ===== */}
       <section className="flex flex-col items-center text-center py-20 px-6">
