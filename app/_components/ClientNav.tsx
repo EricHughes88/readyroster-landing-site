@@ -3,14 +3,23 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 
 type RRRole = "Coach" | "Parent" | "Athlete" | "Admin";
 
+function normalizeRole(raw: unknown): RRRole {
+  const r = String(raw || "").trim().toLowerCase();
+  if (r === "coach") return "Coach";
+  if (r === "athlete") return "Athlete";
+  if (r === "admin") return "Admin";
+  return "Parent";
+}
+
 export default function ClientNav() {
   const pathname = usePathname();
+  const { data: session, status } = useSession();
 
   // ✅ Always run hooks
   const [localRole, setLocalRole] = useState<RRRole | null>(null);
@@ -20,56 +29,65 @@ export default function ClientNav() {
   // ✅ Mark mounted (prevents hydration edge cases)
   useEffect(() => setMounted(true), []);
 
-  // ✅ Only attempt localStorage on client after mount
+  // ✅ Read role from localStorage AFTER mount
   useEffect(() => {
     if (!mounted) return;
     try {
       const raw = localStorage.getItem("rr_user");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.role) setLocalRole(parsed.role as RRRole);
-        else setLocalRole(null);
-      } else {
-        setLocalRole(null);
-      }
+      if (!raw) return setLocalRole(null);
+      const parsed = JSON.parse(raw);
+      const role = parsed?.role ? normalizeRole(parsed.role) : null;
+      setLocalRole(role);
     } catch {
       setLocalRole(null);
     }
   }, [mounted]);
+
+  // ✅ When NextAuth session becomes available, sync it into localStorage
+  useEffect(() => {
+    if (!mounted) return;
+    if (status !== "authenticated") return;
+
+    const u = session?.user as any;
+    if (!u?.id) return;
+
+    const saved = {
+      id: Number(u.id),
+      email: u.email ?? null,
+      name: u.name ?? null,
+      role: normalizeRole(u.role),
+    };
+
+    try {
+      localStorage.setItem("rr_user", JSON.stringify(saved));
+      setLocalRole(saved.role);
+    } catch {
+      // ignore
+    }
+  }, [mounted, status, session]);
 
   // Close mobile menu on route change
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
 
-  // Hide nav on auth pages (SAFE: after hooks)
+  // ✅ Hide nav on auth pages (after hooks)
   const hideNav = pathname === "/login" || pathname === "/create-account";
   if (hideNav) return null;
 
-  // ✅ Keep hook call stable; but protect against runtime throws in prod
-  // (If next-auth throws for any reason, we still render nav using localRole.)
-  let session: any = null;
-  try {
-    const s = useSession();
-    session = mounted ? s.data : null;
-  } catch {
-    session = null;
-  }
-
-  const sessionRole = (session?.user && (session.user as any).role) || null;
-  const role: RRRole | null = (sessionRole as RRRole) || localRole;
-
   const isHome = pathname === "/";
 
-  async function handleLogout() {
-    try {
-      localStorage.removeItem("rr_user");
-      localStorage.removeItem("rr_selected_wrestler_id");
-    } catch {
-      // ignore
-    }
-    await signOut({ callbackUrl: "/login" });
-  }
+  // ✅ Determine role from session first, then localStorage
+  const roleFromSession =
+    status === "authenticated"
+      ? normalizeRole((session?.user as any)?.role)
+      : null;
+
+  const role: RRRole | null = roleFromSession ?? localRole ?? null;
+
+  // ✅ Determine "logged in" reliably
+  // Show authed UI if session is authenticated OR localStorage has a user role
+  const showAuthedUI = status === "authenticated" || !!localRole;
 
   const dashHref =
     role === "Coach"
@@ -83,6 +101,19 @@ export default function ClientNav() {
       : "/login";
 
   const closeMenu = () => setMenuOpen(false);
+
+  async function handleLogout() {
+    try {
+      localStorage.removeItem("rr_user");
+      localStorage.removeItem("rr_selected_wrestler_id");
+    } catch {
+      // ignore
+    }
+    await signOut({ callbackUrl: "/login" });
+  }
+
+  // Don’t render nav until mounted to avoid any hydration weirdness
+  if (!mounted) return null;
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
@@ -102,9 +133,7 @@ export default function ClientNav() {
             priority
             unoptimized
           />
-          <span className="text-lg font-bold whitespace-nowrap">
-            Ready Roster
-          </span>
+          <span className="text-lg font-bold whitespace-nowrap">Ready Roster</span>
         </Link>
 
         {/* Desktop links (md+) */}
@@ -124,7 +153,7 @@ export default function ClientNav() {
 
         {/* Desktop auth buttons (md+) */}
         <div className="hidden md:flex items-center gap-3">
-          {role ? (
+          {showAuthedUI ? (
             <>
               <Link
                 href={dashHref as any}
@@ -200,7 +229,7 @@ export default function ClientNav() {
             )}
 
             <div className="flex gap-2">
-              {role ? (
+              {showAuthedUI ? (
                 <>
                   <Link
                     href={dashHref as any}

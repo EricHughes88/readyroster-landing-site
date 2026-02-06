@@ -1,0 +1,277 @@
+// app/admin/page.tsx
+"use client";
+
+import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+
+type OverviewResponse = {
+  ok: boolean;
+  rangeDays: number;
+  generatedAt: string;
+  kpis: {
+    new_users: number;
+    active_users: number;
+    needs_created: number;
+    matches_requested: number;
+    messages_sent: number;
+  };
+  series: { day: string; new_users: number; activity_events: number }[];
+};
+
+type FeedItem = {
+  id: number;
+  user_id: number;
+  event_type: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  metadata: any;
+  created_at: string;
+};
+
+type ApiError = { ok: false; message?: string; details?: unknown };
+type OverviewApiResponse = OverviewResponse | ApiError;
+type FeedApiResponse = { ok: true; items: FeedItem[] } | ApiError;
+
+function fmtDay(d: string) {
+  return new Date(d + "T00:00:00").toLocaleDateString();
+}
+
+function fmtTime(ts: string) {
+  return new Date(ts).toLocaleString();
+}
+
+function Sparkline({ values }: { values: number[] }) {
+  const w = 220;
+  const h = 40;
+  const max = Math.max(1, ...values);
+  const min = Math.min(0, ...values);
+
+  const pts = values.map((v, i) => {
+    const x = (i / Math.max(1, values.length - 1)) * w;
+    const y = h - ((v - min) / (max - min || 1)) * h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  return (
+    <svg width={w} height={h} style={{ display: "block" }}>
+      <polyline fill="none" stroke="currentColor" strokeWidth="2" points={pts.join(" ")} />
+    </svg>
+  );
+}
+
+export default function AdminDashboardPage() {
+  const { data: session, status } = useSession();
+  const role = (session?.user as any)?.role;
+
+  const [days, setDays] = useState(30);
+  const [overview, setOverview] = useState<OverviewResponse | null>(null);
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    // If not logged in, go to login
+    if (status === "unauthenticated") {
+      window.location.href = "/login";
+    }
+  }, [status]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      // Don’t even try to load analytics until we know session
+      if (status !== "authenticated") return;
+
+      // If logged in but not admin, show message
+      if (role !== "Admin") {
+        setErr("You are logged in, but you do not have Admin access.");
+        return;
+      }
+
+      setLoading(true);
+      setErr(null);
+
+      try {
+        const [oRes, fRes] = await Promise.all([
+          fetch(`/api/admin/analytics/overview?days=${days}`),
+          fetch(`/api/admin/analytics/feed?limit=60`),
+        ]);
+
+        const oJson = (await oRes.json()) as OverviewApiResponse;
+        const fJson = (await fRes.json()) as FeedApiResponse;
+
+        if (!oRes.ok || !("ok" in oJson) || (oJson as any).ok !== true) {
+          const msg = (oJson as any)?.message || `Overview failed (${oRes.status})`;
+          throw new Error(msg);
+        }
+
+        if (!fRes.ok || !("ok" in fJson) || (fJson as any).ok !== true) {
+          const msg = (fJson as any)?.message || `Feed failed (${fRes.status})`;
+          throw new Error(msg);
+        }
+
+        if (!cancelled) {
+          setOverview(oJson as OverviewResponse);
+          setFeed((fJson as any).items || []);
+        }
+      } catch (e: any) {
+        if (!cancelled) setErr(String(e?.message || e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [days, role, status]);
+
+  const newUsersValues = overview?.series?.map((r) => r.new_users) ?? [];
+  const activityValues = overview?.series?.map((r) => r.activity_events) ?? [];
+
+  return (
+    <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto" }}>
+      <header style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Admin Dashboard</h1>
+          <p style={{ marginTop: 6, color: "#666" }}>
+            New users + what users are putting out there (activity feed)
+          </p>
+          {status === "authenticated" && (
+            <div style={{ color: "#777", fontSize: 12 }}>
+              Logged in as {(session?.user as any)?.email} • role: {role}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            Range:
+            <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+              <option value={7}>7 days</option>
+              <option value={30}>30 days</option>
+              <option value={90}>90 days</option>
+            </select>
+          </label>
+        </div>
+      </header>
+
+      {status === "loading" && (
+        <div style={{ marginTop: 16, color: "#666" }}>Checking session…</div>
+      )}
+
+      {err && (
+        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f99", borderRadius: 10, background: "#fff5f5" }}>
+          <b>Error:</b> {err}
+        </div>
+      )}
+
+      <section style={{ marginTop: 18 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+          {[
+            ["New users", overview?.kpis?.new_users ?? 0],
+            ["Active users", overview?.kpis?.active_users ?? 0],
+            ["Needs posted", overview?.kpis?.needs_created ?? 0],
+            ["Match requests", overview?.kpis?.matches_requested ?? 0],
+            ["Messages sent", overview?.kpis?.messages_sent ?? 0],
+          ].map(([label, value]) => (
+            <div key={label} style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+              <div style={{ color: "#666", fontSize: 13 }}>{label}</div>
+              <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{value as number}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <b>New users trend</b>
+            <span style={{ color: "#666", fontSize: 12 }}>
+              {overview?.generatedAt ? `Updated: ${fmtTime(overview.generatedAt)}` : ""}
+            </span>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <Sparkline values={newUsersValues} />
+          </div>
+          <div style={{ marginTop: 8, color: "#666", fontSize: 12 }}>
+            {overview?.series?.length
+              ? `From ${fmtDay(overview.series[0].day)} to ${fmtDay(overview.series[overview.series.length - 1].day)}`
+              : ""}
+          </div>
+        </div>
+
+        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+          <b>Activity events trend</b>
+          <div style={{ marginTop: 10 }}>
+            <Sparkline values={activityValues} />
+          </div>
+          <div style={{ marginTop: 8, color: "#666", fontSize: 12 }}>
+            Includes logged actions (needs, requests, messages, etc.)
+          </div>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 18 }}>
+        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <b>Recent activity feed</b>
+            <span style={{ color: "#666", fontSize: 12 }}>Showing {feed.length} latest actions</span>
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            {loading && <div style={{ color: "#666" }}>Loading…</div>}
+
+            {!loading && feed.length === 0 && (
+              <div style={{ color: "#666" }}>
+                No activity yet — once you start logging events, this fills up.
+              </div>
+            )}
+
+            {!loading && feed.length > 0 && (
+              <div style={{ display: "grid", gap: 10 }}>
+                {feed.map((it) => (
+                  <div key={it.id} style={{ padding: 10, border: "1px solid #f2f2f2", borderRadius: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ fontWeight: 700 }}>
+                        {it.event_type}
+                        <span style={{ fontWeight: 400, color: "#666" }}> • user {it.user_id}</span>
+                      </div>
+                      <div style={{ color: "#666", fontSize: 12 }}>{fmtTime(it.created_at)}</div>
+                    </div>
+
+                    <div style={{ marginTop: 6, color: "#444", fontSize: 13 }}>
+                      {it.entity_type ? (
+                        <>
+                          {it.entity_type} {it.entity_id ? `#${it.entity_id}` : ""}
+                        </>
+                      ) : (
+                        <span style={{ color: "#777" }}>No entity</span>
+                      )}
+                    </div>
+
+                    {it.metadata && Object.keys(it.metadata).length > 0 && (
+                      <pre
+                        style={{
+                          marginTop: 8,
+                          padding: 10,
+                          background: "#fafafa",
+                          borderRadius: 8,
+                          overflowX: "auto",
+                        }}
+                      >
+{JSON.stringify(it.metadata, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}

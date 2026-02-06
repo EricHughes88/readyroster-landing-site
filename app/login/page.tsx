@@ -23,6 +23,13 @@ function normalizeRole(rawRole: unknown): RRSavedUser["role"] {
   return "Parent";
 }
 
+function defaultRouteForRole(role: RRSavedUser["role"]) {
+  if (role === "Admin") return "/admin";
+  if (role === "Coach") return "/coach";
+  if (role === "Athlete") return "/athlete"; // change if your athlete home differs
+  return "/parent";
+}
+
 async function fetchSessionUser(): Promise<RRSavedUser | null> {
   try {
     const res = await fetch("/api/auth/session", { cache: "no-store" });
@@ -41,8 +48,13 @@ async function fetchSessionUser(): Promise<RRSavedUser | null> {
       role,
     };
 
+    // Never let localStorage failures crash login (Safari private mode, blocked storage, etc.)
     if (typeof window !== "undefined") {
-      localStorage.setItem("rr_user", JSON.stringify(saved));
+      try {
+        localStorage.setItem("rr_user", JSON.stringify(saved));
+      } catch {
+        // ignore storage errors
+      }
     }
 
     return saved;
@@ -55,6 +67,7 @@ export default function LoginPage() {
   const router = useRouter();
   const search = useSearchParams();
 
+  // Preserve callbackUrl if it’s a safe internal path
   const rawCallback = search.get("callbackUrl");
   const callbackUrl =
     rawCallback && rawCallback.startsWith("/") ? rawCallback : null;
@@ -83,12 +96,16 @@ export default function LoginPage() {
   // If already logged in, redirect appropriately
   useEffect(() => {
     (async () => {
-      const u = await fetchSessionUser();
-      if (!u) return;
+      try {
+        const u = await fetchSessionUser();
+        if (!u) return;
 
-      if (callbackUrl) router.replace(callbackUrl as any);
-      else if (u.role === "Coach") router.replace("/coach" as any);
-      else router.replace("/parent" as any);
+        if (callbackUrl) router.replace(callbackUrl as any);
+        else router.replace(defaultRouteForRole(u.role) as any);
+      } catch (e) {
+        console.error("[login] pre-redirect crash", e);
+        // do not crash the page
+      }
     })();
   }, [router, callbackUrl]);
 
@@ -97,34 +114,38 @@ export default function LoginPage() {
     setErr(null);
 
     startTransition(async () => {
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-        callbackUrl: callbackUrl ?? "/",
-      });
+      try {
+        const result = await signIn("credentials", {
+          email,
+          password,
+          redirect: false,
+          callbackUrl: callbackUrl ?? "/",
+        });
 
-      if (result?.error) {
-        const map: Record<string, string> = {
-          CredentialsSignin: "Invalid email or password.",
-          missing_credentials: "Please provide both email and password.",
-          user_not_found: "No account found for that email.",
-          bad_password: "Invalid email or password.",
-          default: "Could not sign in. Please try again.",
-        };
-        setErr(map[result.error] ?? map.default);
-        return;
+        if (result?.error) {
+          const map: Record<string, string> = {
+            CredentialsSignin: "Invalid email or password.",
+            missing_credentials: "Please provide both email and password.",
+            user_not_found: "No account found for that email.",
+            bad_password: "Invalid email or password.",
+            default: "Could not sign in. Please try again.",
+          };
+          setErr(map[result.error] ?? map.default);
+          return;
+        }
+
+        const u = await fetchSessionUser();
+        if (!u) {
+          setErr("Login succeeded but could not load session.");
+          return;
+        }
+
+        const dest = callbackUrl ?? defaultRouteForRole(u.role);
+        router.push(dest as any);
+      } catch (e: any) {
+        console.error("[login] crashed:", e);
+        setErr(`Login crashed: ${String(e?.message || e)}`);
       }
-
-      const u = await fetchSessionUser();
-      if (!u) {
-        setErr("Login succeeded but could not load session.");
-        return;
-      }
-
-      if (callbackUrl) router.push(callbackUrl as any);
-      else if (u.role === "Coach") router.push("/coach" as any);
-      else router.push("/parent" as any);
     });
   }
 
@@ -142,9 +163,7 @@ export default function LoginPage() {
 
       <div className="rr-card">
         <h1 className="text-2xl font-semibold mb-2">Log in</h1>
-        <p className="text-slate-300 mb-6">
-          Welcome back to Ready Roster.
-        </p>
+        <p className="text-slate-300 mb-6">Welcome back to Ready Roster.</p>
 
         {err && <div className="rr-alert rr-alert-error mb-4">{err}</div>}
 
@@ -191,7 +210,6 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        {/* Optional subtle footer link */}
         <div className="mt-4 text-center text-xs text-slate-400">
           <Link href="/" className="hover:text-slate-200">
             Return to itsreadyroster.com
