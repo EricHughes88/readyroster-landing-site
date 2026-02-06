@@ -70,7 +70,6 @@ export default function AdminDashboardPage() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    // If not logged in, go to login
     if (status === "unauthenticated") {
       window.location.href = "/login";
     }
@@ -80,10 +79,8 @@ export default function AdminDashboardPage() {
     let cancelled = false;
 
     async function load() {
-      // Don’t even try to load analytics until we know session
       if (status !== "authenticated") return;
 
-      // If logged in but not admin, show message
       if (role !== "Admin") {
         setErr("You are logged in, but you do not have Admin access.");
         return;
@@ -133,37 +130,70 @@ export default function AdminDashboardPage() {
 
   return (
     <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+      <header
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "center",
+        }}
+      >
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Admin Dashboard</h1>
-          <p style={{ marginTop: 6, color: "#666" }}>
+          <p style={{ marginTop: 6, color: "#94a3b8" }}>
             New users + what users are putting out there (activity feed)
           </p>
           {status === "authenticated" && (
-            <div style={{ color: "#777", fontSize: 12 }}>
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>
               Logged in as {(session?.user as any)?.email} • role: {role}
             </div>
           )}
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", color: "#e5e7eb" }}>
             Range:
-            <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
-              <option value={7}>7 days</option>
-              <option value={30}>30 days</option>
-              <option value={90}>90 days</option>
+            <select
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              style={{
+                background: "#111827", // slate-900
+                color: "#ffffff",
+                border: "1px solid #334155", // slate-700
+                borderRadius: 8,
+                padding: "6px 10px",
+                outline: "none",
+                cursor: "pointer",
+              }}
+            >
+              <option value={7} style={{ background: "#111827", color: "#fff" }}>
+                7 days
+              </option>
+              <option value={30} style={{ background: "#111827", color: "#fff" }}>
+                30 days
+              </option>
+              <option value={90} style={{ background: "#111827", color: "#fff" }}>
+                90 days
+              </option>
             </select>
           </label>
         </div>
       </header>
 
       {status === "loading" && (
-        <div style={{ marginTop: 16, color: "#666" }}>Checking session…</div>
+        <div style={{ marginTop: 16, color: "#94a3b8" }}>Checking session…</div>
       )}
 
       {err && (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f99", borderRadius: 10, background: "#fff5f5" }}>
+        <div
+          style={{
+            marginTop: 16,
+            padding: 12,
+            border: "1px solid #f99",
+            borderRadius: 10,
+            background: "#fff5f5",
+          }}
+        >
           <b>Error:</b> {err}
         </div>
       )}
@@ -177,55 +207,59 @@ export default function AdminDashboardPage() {
             ["Match requests", overview?.kpis?.matches_requested ?? 0],
             ["Messages sent", overview?.kpis?.messages_sent ?? 0],
           ].map(([label, value]) => (
-            <div key={label} style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
-              <div style={{ color: "#666", fontSize: 13 }}>{label}</div>
-              <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6 }}>{value as number}</div>
+            <div key={label} style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
+              <div style={{ color: "#94a3b8", fontSize: 13 }}>{label}</div>
+              <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6, color: "#fff" }}>
+                {value as number}
+              </div>
             </div>
           ))}
         </div>
       </section>
 
       <section style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <b>New users trend</b>
-            <span style={{ color: "#666", fontSize: 12 }}>
+            <b style={{ color: "#fff" }}>New users trend</b>
+            <span style={{ color: "#94a3b8", fontSize: 12 }}>
               {overview?.generatedAt ? `Updated: ${fmtTime(overview.generatedAt)}` : ""}
             </span>
           </div>
-          <div style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 10, color: "#fff" }}>
             <Sparkline values={newUsersValues} />
           </div>
-          <div style={{ marginTop: 8, color: "#666", fontSize: 12 }}>
+          <div style={{ marginTop: 8, color: "#94a3b8", fontSize: 12 }}>
             {overview?.series?.length
-              ? `From ${fmtDay(overview.series[0].day)} to ${fmtDay(overview.series[overview.series.length - 1].day)}`
+              ? `From ${fmtDay(overview.series[0].day)} to ${fmtDay(
+                  overview.series[overview.series.length - 1].day
+                )}`
               : ""}
           </div>
         </div>
 
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
-          <b>Activity events trend</b>
-          <div style={{ marginTop: 10 }}>
+        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
+          <b style={{ color: "#fff" }}>Activity events trend</b>
+          <div style={{ marginTop: 10, color: "#fff" }}>
             <Sparkline values={activityValues} />
           </div>
-          <div style={{ marginTop: 8, color: "#666", fontSize: 12 }}>
+          <div style={{ marginTop: 8, color: "#94a3b8", fontSize: 12 }}>
             Includes logged actions (needs, requests, messages, etc.)
           </div>
         </div>
       </section>
 
       <section style={{ marginTop: 18 }}>
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 12 }}>
+        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <b>Recent activity feed</b>
-            <span style={{ color: "#666", fontSize: 12 }}>Showing {feed.length} latest actions</span>
+            <b style={{ color: "#fff" }}>Recent activity feed</b>
+            <span style={{ color: "#94a3b8", fontSize: 12 }}>Showing {feed.length} latest actions</span>
           </div>
 
           <div style={{ marginTop: 10 }}>
-            {loading && <div style={{ color: "#666" }}>Loading…</div>}
+            {loading && <div style={{ color: "#94a3b8" }}>Loading…</div>}
 
             {!loading && feed.length === 0 && (
-              <div style={{ color: "#666" }}>
+              <div style={{ color: "#94a3b8" }}>
                 No activity yet — once you start logging events, this fills up.
               </div>
             )}
@@ -233,22 +267,22 @@ export default function AdminDashboardPage() {
             {!loading && feed.length > 0 && (
               <div style={{ display: "grid", gap: 10 }}>
                 {feed.map((it) => (
-                  <div key={it.id} style={{ padding: 10, border: "1px solid #f2f2f2", borderRadius: 10 }}>
+                  <div key={it.id} style={{ padding: 10, border: "1px solid #334155", borderRadius: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                      <div style={{ fontWeight: 700 }}>
+                      <div style={{ fontWeight: 700, color: "#fff" }}>
                         {it.event_type}
-                        <span style={{ fontWeight: 400, color: "#666" }}> • user {it.user_id}</span>
+                        <span style={{ fontWeight: 400, color: "#94a3b8" }}> • user {it.user_id}</span>
                       </div>
-                      <div style={{ color: "#666", fontSize: 12 }}>{fmtTime(it.created_at)}</div>
+                      <div style={{ color: "#94a3b8", fontSize: 12 }}>{fmtTime(it.created_at)}</div>
                     </div>
 
-                    <div style={{ marginTop: 6, color: "#444", fontSize: 13 }}>
+                    <div style={{ marginTop: 6, color: "#e5e7eb", fontSize: 13 }}>
                       {it.entity_type ? (
                         <>
                           {it.entity_type} {it.entity_id ? `#${it.entity_id}` : ""}
                         </>
                       ) : (
-                        <span style={{ color: "#777" }}>No entity</span>
+                        <span style={{ color: "#94a3b8" }}>No entity</span>
                       )}
                     </div>
 
@@ -257,9 +291,11 @@ export default function AdminDashboardPage() {
                         style={{
                           marginTop: 8,
                           padding: 10,
-                          background: "#fafafa",
+                          background: "#0b1220",
                           borderRadius: 8,
                           overflowX: "auto",
+                          color: "#e5e7eb",
+                          border: "1px solid #334155",
                         }}
                       >
 {JSON.stringify(it.metadata, null, 2)}
