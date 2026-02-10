@@ -28,9 +28,19 @@ type FeedItem = {
   created_at: string;
 };
 
+type TractionItem = {
+  event_name: string;
+  coach_needs: number;
+  unique_coaches: number;
+  athlete_interest: number;
+  unique_athletes: number;
+  supply_gap: number;
+};
+
 type ApiError = { ok: false; message?: string; details?: unknown };
 type OverviewApiResponse = OverviewResponse | ApiError;
 type FeedApiResponse = { ok: true; items: FeedItem[] } | ApiError;
+type TractionApiResponse = { ok: true; days: number; items: TractionItem[] } | ApiError;
 
 function fmtDay(d: string) {
   return new Date(d + "T00:00:00").toLocaleDateString();
@@ -66,6 +76,7 @@ export default function AdminDashboardPage() {
   const [days, setDays] = useState(30);
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [traction, setTraction] = useState<TractionItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -90,13 +101,15 @@ export default function AdminDashboardPage() {
       setErr(null);
 
       try {
-        const [oRes, fRes] = await Promise.all([
+        const [oRes, fRes, tRes] = await Promise.all([
           fetch(`/api/admin/analytics/overview?days=${days}`),
           fetch(`/api/admin/analytics/feed?limit=60`),
+          fetch(`/api/admin/analytics/event-traction?days=${days}&limit=50`),
         ]);
 
         const oJson = (await oRes.json()) as OverviewApiResponse;
         const fJson = (await fRes.json()) as FeedApiResponse;
+        const tJson = (await tRes.json()) as TractionApiResponse;
 
         if (!oRes.ok || !("ok" in oJson) || (oJson as any).ok !== true) {
           const msg = (oJson as any)?.message || `Overview failed (${oRes.status})`;
@@ -108,9 +121,15 @@ export default function AdminDashboardPage() {
           throw new Error(msg);
         }
 
+        if (!tRes.ok || !("ok" in tJson) || (tJson as any).ok !== true) {
+          const msg = (tJson as any)?.message || `Event traction failed (${tRes.status})`;
+          throw new Error(msg);
+        }
+
         if (!cancelled) {
           setOverview(oJson as OverviewResponse);
           setFeed((fJson as any).items || []);
+          setTraction((tJson as any).items || []);
         }
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message || e));
@@ -130,14 +149,7 @@ export default function AdminDashboardPage() {
 
   return (
     <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto" }}>
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-        }}
-      >
+      <header style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <div>
           <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Admin Dashboard</h1>
           <p style={{ marginTop: 6, color: "#94a3b8" }}>
@@ -157,43 +169,27 @@ export default function AdminDashboardPage() {
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
               style={{
-                background: "#111827", // slate-900
+                background: "#111827",
                 color: "#ffffff",
-                border: "1px solid #334155", // slate-700
+                border: "1px solid #334155",
                 borderRadius: 8,
                 padding: "6px 10px",
                 outline: "none",
                 cursor: "pointer",
               }}
             >
-              <option value={7} style={{ background: "#111827", color: "#fff" }}>
-                7 days
-              </option>
-              <option value={30} style={{ background: "#111827", color: "#fff" }}>
-                30 days
-              </option>
-              <option value={90} style={{ background: "#111827", color: "#fff" }}>
-                90 days
-              </option>
+              <option value={7} style={{ background: "#111827", color: "#fff" }}>7 days</option>
+              <option value={30} style={{ background: "#111827", color: "#fff" }}>30 days</option>
+              <option value={90} style={{ background: "#111827", color: "#fff" }}>90 days</option>
             </select>
           </label>
         </div>
       </header>
 
-      {status === "loading" && (
-        <div style={{ marginTop: 16, color: "#94a3b8" }}>Checking session…</div>
-      )}
+      {status === "loading" && <div style={{ marginTop: 16, color: "#94a3b8" }}>Checking session…</div>}
 
       {err && (
-        <div
-          style={{
-            marginTop: 16,
-            padding: 12,
-            border: "1px solid #f99",
-            borderRadius: 10,
-            background: "#fff5f5",
-          }}
-        >
+        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f99", borderRadius: 10, background: "#fff5f5" }}>
           <b>Error:</b> {err}
         </div>
       )}
@@ -209,9 +205,7 @@ export default function AdminDashboardPage() {
           ].map(([label, value]) => (
             <div key={label} style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
               <div style={{ color: "#94a3b8", fontSize: 13 }}>{label}</div>
-              <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6, color: "#fff" }}>
-                {value as number}
-              </div>
+              <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6, color: "#fff" }}>{value as number}</div>
             </div>
           ))}
         </div>
@@ -230,9 +224,7 @@ export default function AdminDashboardPage() {
           </div>
           <div style={{ marginTop: 8, color: "#94a3b8", fontSize: 12 }}>
             {overview?.series?.length
-              ? `From ${fmtDay(overview.series[0].day)} to ${fmtDay(
-                  overview.series[overview.series.length - 1].day
-                )}`
+              ? `From ${fmtDay(overview.series[0].day)} to ${fmtDay(overview.series[overview.series.length - 1].day)}`
               : ""}
           </div>
         </div>
@@ -244,6 +236,57 @@ export default function AdminDashboardPage() {
           </div>
           <div style={{ marginTop: 8, color: "#94a3b8", fontSize: 12 }}>
             Includes logged actions (needs, requests, messages, etc.)
+          </div>
+        </div>
+      </section>
+
+      {/* ✅ NEW: Top events table */}
+      <section style={{ marginTop: 18 }}>
+        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <b style={{ color: "#fff" }}>Top events by traction</b>
+            <span style={{ color: "#94a3b8", fontSize: 12 }}>
+              Coach demand vs Athlete interest (last {days} days)
+            </span>
+          </div>
+
+          <div style={{ marginTop: 10, overflowX: "auto" }}>
+            {loading && <div style={{ color: "#94a3b8" }}>Loading…</div>}
+
+            {!loading && traction.length === 0 && (
+              <div style={{ color: "#94a3b8" }}>
+                No traction data yet — once we start logging NEED_POSTED and ATHLETE_INTEREST, this will populate.
+              </div>
+            )}
+
+            {!loading && traction.length > 0 && (
+              <table style={{ width: "100%", borderCollapse: "collapse", color: "#e5e7eb" }}>
+                <thead>
+                  <tr style={{ textAlign: "left", color: "#94a3b8" }}>
+                    <th style={{ padding: "8px 6px" }}>Event</th>
+                    <th style={{ padding: "8px 6px" }}>Coach needs</th>
+                    <th style={{ padding: "8px 6px" }}>Unique coaches</th>
+                    <th style={{ padding: "8px 6px" }}>Athlete interest</th>
+                    <th style={{ padding: "8px 6px" }}>Unique athletes</th>
+                    <th style={{ padding: "8px 6px" }}>Supply gap</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {traction.map((r) => (
+                    <tr key={r.event_name} style={{ borderTop: "1px solid #334155" }}>
+                      <td style={{ padding: "8px 6px", fontWeight: 800, color: "#fff" }}>{r.event_name}</td>
+                      <td style={{ padding: "8px 6px" }}>{r.coach_needs}</td>
+                      <td style={{ padding: "8px 6px" }}>{r.unique_coaches}</td>
+                      <td style={{ padding: "8px 6px" }}>{r.athlete_interest}</td>
+                      <td style={{ padding: "8px 6px" }}>{r.unique_athletes}</td>
+                      <td style={{ padding: "8px 6px", fontWeight: 700 }}>
+                        {r.supply_gap}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </section>

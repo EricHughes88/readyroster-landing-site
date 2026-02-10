@@ -92,6 +92,48 @@ function normalizeDate(input?: string | Date | null): string | null {
   return null;
 }
 
+/**
+ * Non-blocking analytics log:
+ * - Logs each coach need as demand signal
+ * - Stores extra granularity in `source` (no schema changes needed)
+ * - If logging fails, need creation still succeeds
+ */
+async function logNeedPosted(args: {
+  client: any;
+  coachUserId: number;
+  needId: number;
+  eventName: string;
+  ageGroup: string;
+  ageGroupKey: string | null;
+  weightClass: string;
+  city: string | null;
+  state: string | null;
+}) {
+  try {
+    // Pack granularity into source: easy to parse later for reporting
+    const source = [
+      "coach_post_need",
+      `needId=${args.needId}`,
+      `ageGroup=${encodeURIComponent(args.ageGroup)}`,
+      `ageKey=${encodeURIComponent(args.ageGroupKey ?? "")}`,
+      `weight=${encodeURIComponent(args.weightClass)}`,
+      `city=${encodeURIComponent(args.city ?? "")}`,
+      `state=${encodeURIComponent(args.state ?? "")}`,
+    ].join(";");
+
+    await args.client.query(
+      `
+      insert into public.event_interests (user_id, event_name, source, actor_role, action_type)
+      values ($1, $2, $3, 'Coach', 'NEED_POSTED')
+      `,
+      [args.coachUserId, args.eventName, source]
+    );
+  } catch (e) {
+    console.error("[analytics] logNeedPosted failed:", e);
+    // swallow
+  }
+}
+
 /** GET /api/coach/needs?coachUserId=11 */
 export async function GET(req: Request) {
   try {
@@ -149,7 +191,7 @@ export async function POST(req: Request) {
 
     const v = parsed.data;
 
-    // ✅ NEW: compute normalized key
+    // compute normalized key
     const ageKey = normalizeAgeGroup(v.age_group);
 
     const client = await pool.connect();
@@ -172,7 +214,24 @@ export async function POST(req: Request) {
         ]
       );
 
-      return NextResponse.json({ ok: true, id: res.rows[0].id }, { status: 201 });
+      const needId = Number(res.rows?.[0]?.id || 0);
+
+      // ✅ Analytics: log coach demand signal (non-blocking)
+      if (needId) {
+        await logNeedPosted({
+          client,
+          coachUserId: v.coachUserId,
+          needId,
+          eventName: v.event_name,
+          ageGroup: v.age_group,
+          ageGroupKey: ageKey ?? null,
+          weightClass: v.weight_class,
+          city: v.city ?? null,
+          state: v.state ?? null,
+        });
+      }
+
+      return NextResponse.json({ ok: true, id: needId }, { status: 201 });
     } finally {
       client.release();
     }
