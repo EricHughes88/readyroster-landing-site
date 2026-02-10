@@ -1,3 +1,4 @@
+// app/api/athlete/availability/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Pool } from "pg";
@@ -11,6 +12,7 @@ function jsonError(message: string, status = 500, details?: unknown) {
   return NextResponse.json({ ok: false, message, details }, { status });
 }
 
+// Pool singleton for dev HMR
 declare global {
   // eslint-disable-next-line no-var
   var __RR_ATH_AVAIL_POOL__: Pool | undefined;
