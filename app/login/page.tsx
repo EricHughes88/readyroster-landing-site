@@ -1,33 +1,27 @@
 // app/login/page.tsx
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 
+type RRRole = "Coach" | "Parent" | "Athlete" | "Admin";
+
 type RRSavedUser = {
-  id: number;
+  id: number | string;
   email: string | null;
   name: string | null;
-  role: "Coach" | "Parent" | "Athlete" | "Admin";
+  role: RRRole;
 };
 
-// Normalize any role string from the DB / session
-function normalizeRole(rawRole: unknown): RRSavedUser["role"] {
+function normalizeRole(rawRole: unknown): RRRole {
   const r = String(rawRole || "").trim().toLowerCase();
   if (r === "coach") return "Coach";
   if (r === "athlete") return "Athlete";
   if (r === "admin") return "Admin";
   return "Parent";
-}
-
-function defaultRouteForRole(role: RRSavedUser["role"]) {
-  if (role === "Admin") return "/admin";
-  if (role === "Coach") return "/coach";
-  if (role === "Athlete") return "/athlete"; // change if your athlete home differs
-  return "/parent";
 }
 
 async function fetchSessionUser(): Promise<RRSavedUser | null> {
@@ -39,24 +33,16 @@ async function fetchSessionUser(): Promise<RRSavedUser | null> {
     const u = data?.user;
     if (!u?.id) return null;
 
-    const role = normalizeRole(u.role);
-
     const saved: RRSavedUser = {
-      id: Number(u.id),
+      id: u.id,
       email: u.email ?? null,
       name: u.name ?? null,
-      role,
+      role: normalizeRole(u.role),
     };
 
-    // Never let localStorage failures crash login (Safari private mode, blocked storage, etc.)
     if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("rr_user", JSON.stringify(saved));
-      } catch {
-        // ignore storage errors
-      }
+      localStorage.setItem("rr_user", JSON.stringify(saved));
     }
-
     return saved;
   } catch {
     return null;
@@ -67,7 +53,6 @@ export default function LoginPage() {
   const router = useRouter();
   const search = useSearchParams();
 
-  // Preserve callbackUrl if it’s a safe internal path
   const rawCallback = search.get("callbackUrl");
   const callbackUrl =
     rawCallback && rawCallback.startsWith("/") ? rawCallback : null;
@@ -77,7 +62,7 @@ export default function LoginPage() {
   const [err, setErr] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  // Map NextAuth errors → friendly text
+  // Show NextAuth errors (if any)
   useEffect(() => {
     const e = search.get("error");
     if (!e) return setErr(null);
@@ -93,19 +78,16 @@ export default function LoginPage() {
     setErr(map[e] ?? map.default);
   }, [search]);
 
-  // If already logged in, redirect appropriately
+  // If already logged in, go straight to callbackUrl or role dashboard
   useEffect(() => {
     (async () => {
-      try {
-        const u = await fetchSessionUser();
-        if (!u) return;
+      const u = await fetchSessionUser();
+      if (!u) return;
 
-        if (callbackUrl) router.replace(callbackUrl as any);
-        else router.replace(defaultRouteForRole(u.role) as any);
-      } catch (e) {
-        console.error("[login] pre-redirect crash", e);
-        // do not crash the page
-      }
+      if (callbackUrl) router.replace(callbackUrl as any);
+      else if (u.role === "Admin") router.replace("/admin" as any);
+      else if (u.role === "Coach") router.replace("/coach" as any);
+      else router.replace("/parent" as any);
     })();
   }, [router, callbackUrl]);
 
@@ -114,44 +96,54 @@ export default function LoginPage() {
     setErr(null);
 
     startTransition(async () => {
-      try {
-        const result = await signIn("credentials", {
-          email,
-          password,
-          redirect: false,
-          callbackUrl: callbackUrl ?? "/",
-        });
+      // 1) Sign in (no auto redirect)
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+        callbackUrl: callbackUrl ?? "/parent",
+      });
 
-        if (result?.error) {
-          const map: Record<string, string> = {
-            CredentialsSignin: "Invalid email or password.",
-            missing_credentials: "Please provide both email and password.",
-            user_not_found: "No account found for that email.",
-            bad_password: "Invalid email or password.",
-            default: "Could not sign in. Please try again.",
-          };
-          setErr(map[result.error] ?? map.default);
-          return;
-        }
-
-        const u = await fetchSessionUser();
-        if (!u) {
-          setErr("Login succeeded but could not load session.");
-          return;
-        }
-
-        const dest = callbackUrl ?? defaultRouteForRole(u.role);
-        router.push(dest as any);
-      } catch (e: any) {
-        console.error("[login] crashed:", e);
-        setErr(`Login crashed: ${String(e?.message || e)}`);
+      // 2) Handle errors
+      if (!result) {
+        setErr("Sign in did not return a response. Please try again.");
+        return;
       }
+      if (result.error) {
+        const map: Record<string, string> = {
+          CredentialsSignin: "Invalid email or password.",
+          missing_credentials: "Please provide both email and password.",
+          user_not_found: "No account found for that email.",
+          bad_password: "Invalid email or password.",
+          default: "Could not sign in. Please try again.",
+        };
+        setErr(map[result.error] ?? map.default);
+        return;
+      }
+
+      // 3) Best practice: redirect immediately to NextAuth-provided URL
+      // This avoids “stuck on signing in…” when session propagation is slow.
+      if (result.url) {
+        window.location.href = result.url;
+        return;
+      }
+
+      // 4) Fallback if url missing: read session + route
+      const u = await fetchSessionUser();
+      if (!u) {
+        window.location.href = callbackUrl ?? "/parent";
+        return;
+      }
+
+      if (callbackUrl) router.push(callbackUrl as any);
+      else if (u.role === "Admin") router.push("/admin" as any);
+      else if (u.role === "Coach") router.push("/coach" as any);
+      else router.push("/parent" as any);
     });
   }
 
   return (
     <main className="rr-container">
-      {/* ✅ Back to Home */}
       <div className="mb-4">
         <Link
           href="/"
@@ -219,3 +211,4 @@ export default function LoginPage() {
     </main>
   );
 }
+
