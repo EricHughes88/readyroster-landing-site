@@ -1,3 +1,4 @@
+// app/athlete/availability/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -44,7 +45,7 @@ export default function AthleteAvailabilityPage() {
           return;
         }
 
-        setMsg("Availability saved! This will now appear in Admin traction analytics.");
+        setMsg("Availability saved! This will now count as Athlete interest in the Admin dashboard.");
         setEventName("");
         setAgeGroup("");
         setWeightClass("");
@@ -65,7 +66,7 @@ export default function AthleteAvailabilityPage() {
           <div>
             <h1 className="text-2xl font-bold">Update Availability</h1>
             <p className="text-slate-300 mt-1">
-              Tell coaches what event/age/weight you’re available for. This also powers Admin traction analytics.
+              Tell coaches what event/age/weight you’re available for. This powers Admin traction analytics.
             </p>
           </div>
 
@@ -88,21 +89,28 @@ export default function AthleteAvailabilityPage() {
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/30 p-5">
+        <form
+          onSubmit={onSubmit}
+          className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/30 p-5"
+        >
           <div>
-            <label className="block text-sm font-medium text-slate-200 mb-1">Event Name *</label>
+            <label className="block text-sm font-medium text-slate-200 mb-1">
+              Event Name *
+            </label>
             <input
               value={eventName}
               onChange={(e) => setEventName(e.target.value)}
               className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 outline-none focus:border-slate-400"
-              placeholder="e.g., Freakshow Nationals"
+              placeholder="e.g., Cheesehead"
               required
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-200 mb-1">Age Group *</label>
+              <label className="block text-sm font-medium text-slate-200 mb-1">
+                Age Group *
+              </label>
               <input
                 value={ageGroup}
                 onChange={(e) => setAgeGroup(e.target.value)}
@@ -113,7 +121,9 @@ export default function AthleteAvailabilityPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-200 mb-1">Weight Class *</label>
+              <label className="block text-sm font-medium text-slate-200 mb-1">
+                Weight Class *
+              </label>
               <input
                 value={weightClass}
                 onChange={(e) => setWeightClass(e.target.value)}
@@ -126,7 +136,9 @@ export default function AthleteAvailabilityPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-200 mb-1">City (optional)</label>
+              <label className="block text-sm font-medium text-slate-200 mb-1">
+                City (optional)
+              </label>
               <input
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
@@ -136,7 +148,9 @@ export default function AthleteAvailabilityPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-200 mb-1">State (optional)</label>
+              <label className="block text-sm font-medium text-slate-200 mb-1">
+                State (optional)
+              </label>
               <input
                 value={stateVal}
                 onChange={(e) => setStateVal(e.target.value)}
@@ -147,7 +161,9 @@ export default function AthleteAvailabilityPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-200 mb-1">Notes (optional)</label>
+            <label className="block text-sm font-medium text-slate-200 mb-1">
+              Notes (optional)
+            </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}

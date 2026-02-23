@@ -31,6 +31,15 @@ type Participants = {
   parent?: { id?: number | null; name?: string | null };
 };
 
+type MatchState = {
+  status?: string | null;
+  badge?: "Pending" | "Confirmed" | "Closed" | string | null;
+  confirmed?: boolean | null;
+  closed?: boolean | null;
+  parent_ok?: boolean | null;
+  coach_ok?: boolean | null;
+};
+
 function pickTimestamp(m: Message): string {
   return (
     m.created_at ||
@@ -84,6 +93,8 @@ export default function MatchChatPage() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [participants, setParticipants] = useState<Participants | null>(null);
+  const [match, setMatch] = useState<MatchState | null>(null);
+
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -103,7 +114,25 @@ export default function MatchChatPage() {
     setSessionChecked(true);
   }, [router]);
 
-  // Load + poll messages
+  // ✅ Mark notifications as read when opening conversation
+  // ✅ Trigger bell refresh immediately (no waiting for polling)
+  useEffect(() => {
+    if (!matchId) return;
+
+    fetch("/api/notifications/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ matchId }),
+    })
+      .then(() => {
+        window.dispatchEvent(new Event("rr-notifications-refresh"));
+      })
+      .catch(() => {
+        // never block UI
+      });
+  }, [matchId]);
+
+  // Load + poll messages (NO userId param; server uses NextAuth session)
   useEffect(() => {
     if (!matchId || !currentUserId) return;
 
@@ -111,16 +140,17 @@ export default function MatchChatPage() {
 
     async function load() {
       try {
-        const res = await fetch(
-          `/api/messages/${matchId}?userId=${currentUserId}`,
-          { cache: "no-store" }
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
+        const res = await fetch(`/api/messages/${matchId}`, {
+          cache: "no-store",
+        });
         const data = await res.json();
+
+        if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
         if (!cancelled) {
           setMessages(Array.isArray(data?.messages) ? data.messages : []);
           setParticipants(data?.participants ?? null);
+          setMatch(data?.match ?? null);
           setError(null);
         }
       } catch (err: any) {
@@ -160,11 +190,16 @@ export default function MatchChatPage() {
         : participants.coach?.name || "Coach"
       : "Parent";
 
+  const badge = match?.badge ?? "Pending";
+  const isClosed = !!match?.closed;
+
+  const backHref = currentRole === "Coach" ? "/coach/messages" : "/parent/messages";
+
   async function handleSend() {
     if (!currentUserId) return;
 
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || isClosed) return;
 
     setSending(true);
     setInput("");
@@ -181,24 +216,24 @@ export default function MatchChatPage() {
     setMessages((prev) => [...prev, optimistic]);
 
     try {
+      // ✅ Only send { text } — server uses session for senderId
       const res = await fetch(`/api/messages/${matchId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ senderId: currentUserId, text }),
+        body: JSON.stringify({ text }),
       });
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
 
       if (data?.message) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? data.message : m))
-        );
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? data.message : m)));
       } else {
-        const refresh = await fetch(
-          `/api/messages/${matchId}?userId=${currentUserId}`
-        );
+        const refresh = await fetch(`/api/messages/${matchId}`, { cache: "no-store" });
         const fresh = await refresh.json();
         setMessages(Array.isArray(fresh?.messages) ? fresh.messages : []);
+        setParticipants(fresh?.participants ?? null);
+        setMatch(fresh?.match ?? null);
       }
 
       setError(null);
@@ -224,16 +259,32 @@ export default function MatchChatPage() {
       {/* Back to inbox */}
       <div className="mb-3">
         <button
-          onClick={() => router.push("/parent/messages")}
+          onClick={() => router.push(backHref as any)}
           className="text-slate-300 hover:text-white text-sm"
         >
           ← Back to messages
         </button>
       </div>
 
-      <h1 className="text-xl font-bold mb-4">
-        Messages with {otherName}
-      </h1>
+      {/* Header + badge */}
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h1 className="text-xl font-bold">Messages with {otherName}</h1>
+
+        <div
+          className={`text-xs px-3 py-1 rounded-full border ${
+            badge === "Confirmed"
+              ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
+              : badge === "Closed"
+              ? "border-red-400/40 bg-red-500/10 text-red-200"
+              : "border-amber-400/40 bg-amber-500/10 text-amber-200"
+          }`}
+          title={`status=${match?.status ?? "pending"} | coach_ok=${String(
+            match?.coach_ok ?? false
+          )} | parent_ok=${String(match?.parent_ok ?? false)}`}
+        >
+          {badge}
+        </div>
+      </div>
 
       {error && (
         <div className="mb-3 rounded-md bg-red-900/30 border border-red-500/50 p-3 text-sm">
@@ -269,14 +320,10 @@ export default function MatchChatPage() {
                   <div className={`max-w-[70%] ${mine ? "order-1" : ""}`}>
                     <div
                       className={`text-[11px] mb-1 ${
-                        mine
-                          ? "text-rose-300 text-right"
-                          : "text-slate-300"
+                        mine ? "text-rose-300 text-right" : "text-slate-300"
                       }`}
                     >
-                      <span className="font-semibold">
-                        {mine ? "You" : name}
-                      </span>{" "}
+                      <span className="font-semibold">{mine ? "You" : name}</span>{" "}
                       <span className="opacity-70">
                         ·{" "}
                         {new Date(timestamp).toLocaleTimeString([], {
@@ -288,14 +335,10 @@ export default function MatchChatPage() {
 
                     <div
                       className={`rounded-2xl px-3 py-2 text-sm ${
-                        mine
-                          ? "bg-rose-600 text-white"
-                          : "bg-slate-800 text-slate-100"
+                        mine ? "bg-rose-600 text-white" : "bg-slate-800 text-slate-100"
                       }`}
                     >
-                      {text || (
-                        <span className="opacity-60">(no text)</span>
-                      )}
+                      {text || <span className="opacity-60">(no text)</span>}
                     </div>
                   </div>
 
@@ -307,17 +350,24 @@ export default function MatchChatPage() {
         )}
       </div>
 
+      {isClosed && (
+        <div className="mt-3 text-sm text-red-200">
+          This match is closed. Messaging is disabled.
+        </div>
+      )}
+
       <div className="flex gap-2 mt-4">
         <input
           className="flex-1 rounded-lg px-3 py-2 bg-slate-800/60 border border-slate-700 outline-none"
-          placeholder="Type your message…"
+          placeholder={isClosed ? "Messaging disabled for closed matches." : "Type your message…"}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
+          disabled={isClosed}
         />
         <button
           onClick={handleSend}
-          disabled={sending || !input.trim()}
+          disabled={sending || !input.trim() || isClosed}
           className="rounded-lg px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50"
         >
           {sending ? "Sending…" : "Send"}

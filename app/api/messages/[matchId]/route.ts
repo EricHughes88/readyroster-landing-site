@@ -10,8 +10,9 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-// ---- Display Name Helper ----
-// Uses your ACTUAL database columns: firstname, lastname
+/* ------------------------------------------------------------------ */
+/* Display Name Helper (uses your ACTUAL DB columns: firstname/lastname) */
+/* ------------------------------------------------------------------ */
 async function getUserDisplayName(
   client: Pool,
   userId?: number | null,
@@ -38,39 +39,76 @@ async function getUserDisplayName(
     const u = r.rows[0];
     if (!u) return fallbackRoleLabel ?? `User #${userId}`;
 
-    // 1️⃣ Prefer REAL first + last name
-    if (u.firstname || u.lastname) {
-      return `${u.firstname ?? ""} ${u.lastname ?? ""}`.trim();
-    }
+    // Prefer real first + last name
+    const full = `${u.firstname ?? ""} ${u.lastname ?? ""}`.trim();
+    if (full) return full;
 
-    // 2️⃣ Next fallback: email prefix
+    // Next fallback: email prefix
     if (u.email) {
       const base = u.email.split("@")[0];
-      if (base) {
-        return base.charAt(0).toUpperCase() + base.slice(1);
-      }
+      if (base) return base.charAt(0).toUpperCase() + base.slice(1);
     }
 
-    // 3️⃣ Last fallback: role label
-    if (u.role === "Coach") return "Coach";
-    if (u.role === "Parent") return "Parent";
+    // Last fallback: role label
+    const role = String(u.role ?? "");
+    if (role === "Coach") return "Coach";
+    if (role === "Parent") return "Parent";
 
     return fallbackRoleLabel ?? `User #${userId}`;
-  } catch (err) {
+  } catch {
     return fallbackRoleLabel ?? `User #${userId}`;
   }
 }
 
-/**
- * GET /api/messages/[matchId]
- * Returns: viewer, participants (coach+parent), messages[]
- */
+/* ------------------------------------------------------------------ */
+/* Notifications: create MESSAGE notification (adds RETURNING + logs)  */
+/* columns: user_id, type, title, body, link, is_read, created_at      */
+/* ------------------------------------------------------------------ */
+async function createMessageNotification(args: {
+  client: Pool;
+  receiverUserId: number;
+  matchId: number;
+  fromName: string;
+  text: string;
+}) {
+  try {
+    const preview =
+      args.text.length > 80 ? args.text.slice(0, 77) + "…" : args.text;
+
+    const link = `/messages/match/${args.matchId}`;
+
+    console.log("[notify] inserting notification", {
+      receiverUserId: args.receiverUserId,
+      link,
+    });
+
+    const ins = await args.client.query(
+      `
+      INSERT INTO public.notifications
+        (user_id, type, title, body, link, is_read, created_at)
+      VALUES
+        ($1, 'message', $2, $3, $4, false, NOW())
+      RETURNING id, user_id, type, link, is_read, created_at
+      `,
+      [args.receiverUserId, "New message", `${args.fromName}: ${preview}`, link]
+    );
+
+    console.log("[notify] inserted OK", ins.rows?.[0]);
+  } catch (e) {
+    console.error("[notify] createMessageNotification failed:", e);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* GET /api/messages/[matchId]                                         */
+/* Returns: viewer, participants (coach+parent), messages[]            */
+/* ------------------------------------------------------------------ */
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: { matchId: string } }
 ) {
   const matchId = Number(params.matchId);
-  if (!matchId) {
+  if (!Number.isFinite(matchId) || matchId <= 0) {
     return NextResponse.json(
       { ok: false, error: "Invalid match id" },
       { status: 400 }
@@ -79,10 +117,7 @@ export async function GET(
 
   const session = await getServerSession(authConfig);
   if (!session?.user?.id) {
-    return NextResponse.json(
-      { ok: false, error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
   const viewerId = Number(session.user.id);
@@ -91,38 +126,53 @@ export async function GET(
   try {
     const client = pool;
 
-    // Load match -> get coach ID
+    // Load match -> resolve coach_user_id (fallback via coach_need_id)
     const matchRes = await client.query<{ coach_user_id: number | null }>(
       `
-      SELECT coach_user_id
-      FROM public.matches
-      WHERE id = $1
+      SELECT
+        COALESCE(m.coach_user_id, cn.coach_user_id) AS coach_user_id
+      FROM public.matches m
+      LEFT JOIN public.coach_needs cn ON cn.id = m.coach_need_id
+      WHERE m.id = $1
+      LIMIT 1
       `,
       [matchId]
     );
 
     if (!matchRes.rows.length) {
-      return NextResponse.json(
-        { ok: false, error: "Match not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: false, error: "Match not found" }, { status: 404 });
     }
 
     const { coach_user_id } = matchRes.rows[0];
 
-    // ---- Load coach display name ----
+    // Coach display name
     const coachName = await getUserDisplayName(client, coach_user_id, "Coach");
 
-    // ---- Load parent display name (viewer is parent) ----
+    // Parent display name: if viewer is parent, that's viewer. Otherwise look it up via wrestlers.
     let parentId: number | null = null;
     let parentName: string | null = "Parent";
 
-    if (viewerRole === "Parent") {
+    if (String(viewerRole ?? "") === "Parent") {
       parentId = viewerId;
+      parentName = await getUserDisplayName(client, parentId, "Parent");
+    } else {
+      const pres = await client.query<{ parent_user_id: number | null }>(
+        `
+        SELECT w.parent_user_id
+        FROM public.matches m
+        JOIN public.wrestler_interests wi ON wi.id = m.wrestler_interest_id
+        JOIN public.wrestlers w           ON w.id  = wi.wrestler_id
+        WHERE m.id = $1
+        LIMIT 1
+        `,
+        [matchId]
+      );
+
+      parentId = pres.rows?.[0]?.parent_user_id ?? null;
       parentName = await getUserDisplayName(client, parentId, "Parent");
     }
 
-    // ---- Load messages ----
+    // Load messages
     const messagesRes = await client.query<{
       messageid: number;
       matchid: number;
@@ -140,7 +190,7 @@ export async function GET(
       [matchId]
     );
 
-    const messages = messagesRes.rows.map((m) => ({
+    const messages = (messagesRes.rows || []).map((m) => ({
       id: m.messageid,
       match_id: m.matchid,
       sender_id: m.senderid,
@@ -149,99 +199,144 @@ export async function GET(
       sent_at: m.sentat,
     }));
 
-    // ---- Response ----
-    return NextResponse.json({
-      ok: true,
-      viewer: {
-        id: viewerId,
-        role: viewerRole ?? null,
+    return NextResponse.json(
+      {
+        ok: true,
+        viewer: { id: viewerId, role: viewerRole ?? null },
+        participants: {
+          coach: { id: coach_user_id, name: coachName },
+          parent: { id: parentId, name: parentName },
+        },
+        messages,
       },
-      participants: {
-        coach: { id: coach_user_id, name: coachName },
-        parent: { id: parentId, name: parentName },
-      },
-      messages,
-    });
+      { status: 200 }
+    );
   } catch (err) {
     console.error("[GET /api/messages/:matchId] error", err);
-    return NextResponse.json(
-      { ok: false, error: "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
   }
 }
 
-/**
- * POST /api/messages/[matchId]
- * Inserts a new message.
- */
+/* ------------------------------------------------------------------ */
+/* POST /api/messages/[matchId]                                        */
+/* Inserts message + creates notification for other user               */
+/* ------------------------------------------------------------------ */
 export async function POST(
   req: NextRequest,
   { params }: { params: { matchId: string } }
 ) {
+  console.log(">>> HIT /api/messages/[matchId] POST (with notifications) <<<");
+
   const matchId = Number(params.matchId);
-  if (!matchId) {
-    return NextResponse.json(
-      { ok: false, error: "Invalid match id" },
-      { status: 400 }
-    );
+  if (!Number.isFinite(matchId) || matchId <= 0) {
+    return NextResponse.json({ ok: false, error: "Invalid match id" }, { status: 400 });
   }
 
   const session = await getServerSession(authConfig);
   if (!session?.user?.id) {
-    return NextResponse.json(
-      { ok: false, error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
   const senderId = Number(session.user.id);
+  const senderRole = String((session.user as any).role ?? "").toLowerCase();
 
   try {
     const body = await req.json();
     const text = String(body.text ?? "").trim();
 
     if (!text) {
-      return NextResponse.json(
-        { ok: false, error: "Message text required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Message text required" }, { status: 400 });
     }
 
-    const client = pool;
-
-    // Ensure match exists
-    const matchRes = await client.query(
+    // Load match => coach_user_id + parent_user_id
+    // coach_user_id falls back to coach_needs via coach_need_id (fixes NULL coach_user_id matches)
+    const matchRes = await pool.query<{
+      coach_user_id: number | null;
+      parent_user_id: number | null;
+    }>(
       `
-      SELECT id
-      FROM public.matches
-      WHERE id = $1
+      SELECT
+        COALESCE(m.coach_user_id, cn.coach_user_id) AS coach_user_id,
+        w.parent_user_id
+      FROM public.matches m
+      LEFT JOIN public.coach_needs cn      ON cn.id = m.coach_need_id
+      JOIN public.wrestler_interests wi    ON wi.id = m.wrestler_interest_id
+      JOIN public.wrestlers w              ON w.id  = wi.wrestler_id
+      WHERE m.id = $1
+      LIMIT 1
       `,
       [matchId]
     );
 
+    console.log("[msg] match lookup result", matchRes.rows?.[0]);
+
     if (!matchRes.rows.length) {
-      return NextResponse.json(
-        { ok: false, error: "Match not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: false, error: "Match not found" }, { status: 404 });
     }
 
-    // Insert message (receiverId = NULL for now)
-    await client.query(
+    const { coach_user_id, parent_user_id } = matchRes.rows[0];
+
+    // Receiver = opposite party
+    const receiverId =
+      senderRole === "coach" ? (parent_user_id ?? null) : (coach_user_id ?? null);
+
+    console.log("[msg] receiverId resolved", receiverId);
+
+    // Insert message
+    const inserted = await pool.query<{
+      messageid: number;
+      matchid: number;
+      senderid: number | null;
+      receiverid: number | null;
+      messagetext: string | null;
+      sentat: string | null;
+    }>(
       `
       INSERT INTO public.messages (matchid, senderid, receiverid, messagetext, sentat)
-      VALUES ($1, $2, NULL, $3, NOW())
+      VALUES ($1, $2, $3, $4, NOW())
+      RETURNING messageid, matchid, senderid, receiverid, messagetext, sentat
       `,
-      [matchId, senderId, text]
+      [matchId, senderId, receiverId, text]
     );
 
-    return NextResponse.json({ ok: true });
+    // Create notification for receiver (non-blocking)
+    if (receiverId) {
+      const fromName =
+        (await getUserDisplayName(
+          pool,
+          senderId,
+          senderRole === "coach" ? "Coach" : "Parent"
+        )) || (senderRole === "coach" ? "Coach" : "Parent");
+
+      await createMessageNotification({
+        client: pool,
+        receiverUserId: receiverId,
+        matchId,
+        fromName,
+        text,
+      });
+    } else {
+      console.log("[notify] skipped (receiverId is null)");
+    }
+
+    const m = inserted.rows[0];
+
+    return NextResponse.json(
+      {
+        ok: true,
+        message: {
+          id: m.messageid,
+          match_id: m.matchid,
+          sender_id: m.senderid,
+          receiver_id: m.receiverid,
+          message_text: m.messagetext ?? "",
+          sent_at: m.sentat,
+        },
+      },
+      { status: 200 }
+    );
   } catch (err) {
     console.error("[POST /api/messages/:matchId] error", err);
-    return NextResponse.json(
-      { ok: false, error: "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
   }
 }

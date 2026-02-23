@@ -1,82 +1,174 @@
-// app/api/matches/[id]/confirm/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function jsonError(message: string, status = 500, details?: unknown) {
-  return NextResponse.json({ ok: false, message, details }, { status });
+/* ------------------------------------------------------------------ */
+/* Notifications helper (handles read vs is_read)                      */
+/* ------------------------------------------------------------------ */
+
+let notifReadCol: "is_read" | "read" | null = null;
+let notifChecked = false;
+
+async function resolveNotificationsReadColumn() {
+  if (notifChecked) return notifReadCol;
+  notifChecked = true;
+
+  try {
+    const t = await pool.query(`SELECT to_regclass('public.notifications') AS r`);
+    if (!t.rows?.[0]?.r) return (notifReadCol = null);
+
+    const cols = await pool.query(
+      `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema='public'
+        AND table_name='notifications'
+        AND column_name IN ('is_read','read')
+      `
+    );
+
+    const names = new Set<string>((cols.rows || []).map((r: any) => r.column_name));
+    if (names.has("is_read")) notifReadCol = "is_read";
+    else if (names.has("read")) notifReadCol = "read";
+    else notifReadCol = null;
+
+    return notifReadCol;
+  } catch {
+    notifReadCol = null;
+    return notifReadCol;
+  }
 }
 
-type RouteParams = {
-  params: {
-    id: string;
-  };
-};
+async function createNotification(args: {
+  userId: number;
+  type: string;
+  title: string;
+  body: string;
+  link: string;
+}) {
+  try {
+    const readCol = await resolveNotificationsReadColumn();
+    if (!readCol) return;
 
-// POST /api/matches/:id/confirm
-// Body: { side?: "coach" | "parent" }  --> defaults to "parent"
-export async function POST(req: NextRequest, { params }: RouteParams) {
-  const matchId = Number(params.id);
-  if (!Number.isFinite(matchId) || matchId <= 0) {
-    return jsonError("Invalid match id", 400);
+    await pool.query(
+      `
+      INSERT INTO public.notifications
+        (user_id, type, title, body, link, ${readCol}, created_at)
+      VALUES
+        ($1, $2, $3, $4, $5, false, NOW())
+      `,
+      [args.userId, args.type, args.title, args.body, args.link]
+    );
+  } catch (e) {
+    console.error("[notify] createNotification failed:", e);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* POST /api/matches/:id/confirm-coach                                 */
+/* ------------------------------------------------------------------ */
+
+export async function POST(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const mid = Number(params.id);
+
+  if (!Number.isFinite(mid) || mid <= 0) {
+    return NextResponse.json({ ok: false, message: "Invalid matchId" }, { status: 400 });
   }
 
-  let side: "coach" | "parent" = "parent";
+  const client = await pool.connect();
   try {
-    const body = await req.json().catch(() => ({}));
-    if (body && (body.side === "coach" || body.side === "parent")) {
-      side = body.side;
-    }
-  } catch {
-    // ignore, keep side = "parent"
-  }
+    await client.query("BEGIN");
 
-  try {
-    // Get existing flags
-    const { rows } = await pool.query(
-      `SELECT id, status, coach_ok, parent_ok
-       FROM matches
-       WHERE id = $1`,
-      [matchId]
+    const mres = await client.query(
+      `
+      SELECT
+        m.id,
+        m.status,
+        m.parent_ok,
+        m.coach_ok,
+        m.coach_user_id,
+        wi.wrestler_id,
+        w.parent_user_id
+      FROM public.matches m
+      JOIN public.wrestler_interests wi ON wi.id = m.wrestler_interest_id
+      JOIN public.wrestlers w           ON w.id  = wi.wrestler_id
+      WHERE m.id = $1
+      FOR UPDATE
+      `,
+      [mid]
     );
 
-    if (!rows.length) {
-      return jsonError("Match not found", 404);
+    if (!mres.rowCount) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ ok: false, message: "Match not found" }, { status: 404 });
     }
 
-    let coachOk: boolean | null = rows[0].coach_ok;
-    let parentOk: boolean | null = rows[0].parent_ok;
+    const row = mres.rows[0] as {
+      parent_ok: boolean | null;
+      parent_user_id: number | null;
+    };
 
-    if (side === "coach") coachOk = true;
-    if (side === "parent") parentOk = true;
+    const nextCoachOk = true;
+    const nextParentOk = row.parent_ok ?? false;
+    const willBeConfirmed = nextParentOk && nextCoachOk;
 
-    const isConfirmed = !!coachOk && !!parentOk;
-
-    const { rows: updated } = await pool.query(
-      `UPDATE matches
-       SET coach_ok = $1,
-           parent_ok = $2,
-           status = CASE WHEN $3 THEN 'confirmed' ELSE status END,
-           confirmed_at = CASE WHEN $3 AND status <> 'confirmed'
-                               THEN NOW() ELSE confirmed_at END,
-           updated_at = NOW()
-       WHERE id = $4
-       RETURNING *`,
-      [coachOk, parentOk, isConfirmed, matchId]
+    const updated = await client.query(
+      `
+      UPDATE public.matches
+      SET
+        coach_ok = true,
+        status = CASE WHEN $2 THEN 'confirmed' ELSE status END,
+        confirmed_at = CASE
+          WHEN $2 AND (status <> 'confirmed' OR confirmed_at IS NULL)
+          THEN NOW()
+          ELSE confirmed_at
+        END,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING id, status, parent_ok, coach_ok, confirmed_at, updated_at
+      `,
+      [mid, willBeConfirmed]
     );
 
+    await client.query("COMMIT");
+
+    const parentUserId = Number(row.parent_user_id || 0);
+    if (parentUserId) {
+      if (willBeConfirmed) {
+        await createNotification({
+          userId: parentUserId,
+          type: "match_confirmed",
+          title: "Match confirmed!",
+          body: "Coach confirmed your match. You’re locked in for this event.",
+          link: `/matches/${mid}`,
+        });
+      } else {
+        await createNotification({
+          userId: parentUserId,
+          type: "coach_confirmed",
+          title: "Coach confirmed",
+          body: "Coach confirmed the match request. Confirm on your side to lock it in.",
+          link: `/parent/matches/${mid}`,
+        });
+      }
+    }
+
+    return NextResponse.json({ ok: true, match: updated.rows[0] }, { status: 200 });
+  } catch (e: any) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {}
+    console.error("confirm-coach error:", e);
     return NextResponse.json(
-      {
-        ok: true,
-        match: updated[0],
-      },
-      { status: 200 }
+      { ok: false, message: "Failed to confirm match (coach)" },
+      { status: 500 }
     );
-  } catch (err: any) {
-    console.error("Error confirming match", err);
-    return jsonError("Internal server error confirming match", 500, {
-      message: String(err?.message ?? err),
-    });
+  } finally {
+    client.release();
   }
 }

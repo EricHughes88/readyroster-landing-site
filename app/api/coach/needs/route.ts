@@ -7,12 +7,21 @@ import { normalizeAgeGroup } from "@/lib/normalizeAgeGroup";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Accepts coachUserId as string or number; event_date in many formats
+/**
+ * ✅ Updated to support posting MULTIPLE weight classes at once.
+ * weight_class can be:
+ *  - "65"
+ *  - "65,75,160,190"
+ *  - ["65","75","160","190"]
+ */
 const NewNeedSchema = z.object({
   coachUserId: z.coerce.number().int().positive(),
   event_name: z.string().min(1, "event_name is required"),
   event_date: z.union([z.string().min(1), z.date()]).optional().nullable(),
-  weight_class: z.string().min(1, "weight_class is required"),
+  weight_class: z.union([
+    z.string().min(1, "weight_class is required"),
+    z.array(z.string().min(1)).min(1, "weight_class is required"),
+  ]),
   age_group: z.string().min(1, "age_group is required"),
   city: z.string().optional().nullable(),
   state: z.string().optional().nullable(),
@@ -32,7 +41,7 @@ async function readBody(req: Request): Promise<Record<string, any>> {
     try {
       return await req.json();
     } catch {
-      // fall through to formData attempt
+      // fall through
     }
   }
 
@@ -43,7 +52,7 @@ async function readBody(req: Request): Promise<Record<string, any>> {
     return Object.fromEntries(params.entries());
   }
 
-  // multipart/form-data or anything else we can parse with formData()
+  // multipart/form-data (or anything else we can parse with formData())
   try {
     const fd = await req.formData();
     const out: Record<string, any> = {};
@@ -53,7 +62,7 @@ async function readBody(req: Request): Promise<Record<string, any>> {
     /* ignore */
   }
 
-  // If we get here, try JSON one last time (in case there was no CT header set)
+  // Last attempt
   try {
     return await req.json();
   } catch {
@@ -71,14 +80,11 @@ function normalizeDate(input?: string | Date | null): string | null {
 
   if (typeof input === "string") {
     const s = input.trim();
-    // already YYYY-MM-DD
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-    // Try Date parser
     const d = new Date(s);
     if (!isNaN(+d)) return d.toISOString().slice(0, 10);
 
-    // Try MM/DD/YYYY (or M/D/YYYY)
     const parts = s.split(/[^\d]/).map((n) => Number(n));
     if (parts.length >= 3) {
       const [m, d2, y] = parts;
@@ -90,6 +96,28 @@ function normalizeDate(input?: string | Date | null): string | null {
   }
 
   return null;
+}
+
+/** Convert weight_class input to a clean, unique list (supports commas/newlines/semicolons) */
+function parseWeights(input: string | string[]): string[] {
+  const rawList = Array.isArray(input) ? input : [input];
+
+  const pieces = rawList
+    .flatMap((s) => String(s).split(/[,\n;]+/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // de-dupe case-insensitively
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const w of pieces) {
+    const key = w.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(w);
+    }
+  }
+  return out;
 }
 
 /**
@@ -110,7 +138,6 @@ async function logNeedPosted(args: {
   state: string | null;
 }) {
   try {
-    // Pack granularity into source: easy to parse later for reporting
     const source = [
       "coach_post_need",
       `needId=${args.needId}`,
@@ -130,7 +157,6 @@ async function logNeedPosted(args: {
     );
   } catch (e) {
     console.error("[analytics] logNeedPosted failed:", e);
-    // swallow
   }
 }
 
@@ -145,7 +171,10 @@ export async function GET(req: Request) {
     const coachUserId = Number(searchParams.get("coachUserId") || "");
 
     if (!coachUserId) {
-      return NextResponse.json({ ok: false, message: "coachUserId is required" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, message: "coachUserId is required" },
+        { status: 400 }
+      );
     }
 
     const client = await pool.connect();
@@ -174,10 +203,14 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     if (!pool) {
-      return NextResponse.json({ ok: false, message: "Database not configured" }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, message: "Database not configured" },
+        { status: 500 }
+      );
     }
 
     const raw = await readBody(req);
+
     // Normalize date before validation to avoid schema failures
     if (raw.event_date) raw.event_date = normalizeDate(raw.event_date);
 
@@ -191,47 +224,98 @@ export async function POST(req: Request) {
 
     const v = parsed.data;
 
-    // compute normalized key
-    const ageKey = normalizeAgeGroup(v.age_group);
+    // ✅ Normalize age group display + key consistently
+    const normalizedAgeGroup = normalizeAgeGroup(v.age_group); // e.g. "10U"
+    const ageKey = normalizedAgeGroup ? normalizedAgeGroup.toLowerCase() : null; // e.g. "10u"
+
+    // ✅ Parse weights (supports comma-separated or array)
+    const weights = parseWeights(v.weight_class);
+    if (!weights.length) {
+      return NextResponse.json(
+        { ok: false, message: "weight_class is required" },
+        { status: 400 }
+      );
+    }
 
     const client = await pool.connect();
     try {
-      const res = await client.query(
-        `INSERT INTO public.coach_needs
-           (coach_user_id, event_name, event_date, weight_class, age_group, age_group_key, city, state, notes, is_open)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, true)
-         RETURNING id`,
-        [
-          v.coachUserId,
-          v.event_name,
-          v.event_date ?? null,
-          v.weight_class,
-          v.age_group,
-          ageKey ?? null,
-          v.city ?? null,
-          v.state ?? null,
-          v.notes ?? null,
-        ]
+      // ✅ ROLE VALIDATION: only Coaches can create coach needs
+      // IMPORTANT: your coachUserId is users.user_id (app id), not users.id
+      const ures = await client.query(
+        `SELECT id, user_id, name, role
+           FROM public.users
+          WHERE user_id = $1
+          LIMIT 1`,
+        [v.coachUserId]
       );
 
-      const needId = Number(res.rows?.[0]?.id || 0);
-
-      // ✅ Analytics: log coach demand signal (non-blocking)
-      if (needId) {
-        await logNeedPosted({
-          client,
-          coachUserId: v.coachUserId,
-          needId,
-          eventName: v.event_name,
-          ageGroup: v.age_group,
-          ageGroupKey: ageKey ?? null,
-          weightClass: v.weight_class,
-          city: v.city ?? null,
-          state: v.state ?? null,
-        });
+      if (!ures.rows.length) {
+        return NextResponse.json({ ok: false, message: "User not found" }, { status: 404 });
       }
 
-      return NextResponse.json({ ok: true, id: needId }, { status: 201 });
+      const role = String(ures.rows[0]?.role || "").toLowerCase();
+      if (role !== "coach") {
+        return NextResponse.json(
+          { ok: false, message: "Only Coaches can create coach needs." },
+          { status: 403 }
+        );
+      }
+
+      // ✅ Insert one row per weight class (all-or-nothing transaction)
+      await client.query("BEGIN");
+
+      const ids: number[] = [];
+      for (const w of weights) {
+        const res = await client.query(
+          `INSERT INTO public.coach_needs
+             (coach_user_id, event_name, event_date, weight_class, age_group, age_group_key, city, state, notes, is_open)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, true)
+           RETURNING id`,
+          [
+            v.coachUserId,
+            v.event_name,
+            v.event_date ?? null,
+            w,
+            normalizedAgeGroup || v.age_group,
+            ageKey ?? null,
+            v.city ?? null,
+            v.state ?? null,
+            v.notes ?? null,
+          ]
+        );
+
+        const needId = Number(res.rows?.[0]?.id || 0);
+        if (needId) ids.push(needId);
+
+        // Analytics per inserted row (non-blocking)
+        if (needId) {
+          await logNeedPosted({
+            client,
+            coachUserId: v.coachUserId,
+            needId,
+            eventName: v.event_name,
+            ageGroup: normalizedAgeGroup || v.age_group,
+            ageGroupKey: ageKey ?? null,
+            weightClass: w,
+            city: v.city ?? null,
+            state: v.state ?? null,
+          });
+        }
+      }
+
+      await client.query("COMMIT");
+
+      return NextResponse.json(
+        { ok: true, createdCount: ids.length, ids },
+        { status: 201 }
+      );
+    } catch (e) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // ignore
+      }
+      throw e;
     } finally {
       client.release();
     }

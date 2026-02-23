@@ -1,4 +1,3 @@
-// app/api/matches/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
@@ -9,12 +8,9 @@ function jsonError(message: string, status = 500, details?: unknown) {
 }
 
 type RouteParams = {
-  params: {
-    id: string;
-  };
+  params: { id: string };
 };
 
-// GET /api/matches/:id
 export async function GET(req: NextRequest, { params }: RouteParams) {
   const matchId = Number(params.id);
   if (!Number.isFinite(matchId) || matchId <= 0) {
@@ -57,17 +53,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     `;
 
     const { rows } = await pool.query(sql, [matchId]);
-    if (!rows.length) {
-      return jsonError("Match not found", 404);
-    }
+    if (!rows.length) return jsonError("Match not found", 404);
 
-    return NextResponse.json(
-      {
-        ok: true,
-        match: rows[0],
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, match: rows[0] }, { status: 200 });
   } catch (err: any) {
     console.error("Error in GET /api/matches/:id", err);
     return jsonError("Internal server error", 500, {

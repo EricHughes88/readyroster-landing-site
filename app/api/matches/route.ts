@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const sp = url.searchParams;
 
-    const coachUserId = Number(sp.get("coachUserId") || 0);
+    const coachUserId = Number(sp.get("coachUserId") || 0); // may be users.id OR users.user_id depending on caller
     const parentUserId = Number(sp.get("parentUserId") || 0);
     const needId = Number(sp.get("needId") || 0);
     const wrestlerId = Number(sp.get("wrestlerId") || 0);
@@ -44,23 +45,35 @@ export async function GET(req: NextRequest) {
     const params: any[] = [];
     let idx = 1;
 
+    /**
+     * IMPORTANT:
+     * - matches.coach_user_id stores the "app id" (users.user_id) because it comes from coach_needs.coach_user_id
+     * - some callers may still pass users.id
+     * So we support BOTH by checking:
+     *   (m.coach_user_id = $X) OR (coach_u.id = $X)
+     */
     if (coachUserId) {
-      where.push(`m.coach_user_id = $${idx++}`);
+      where.push(`(m.coach_user_id = $${idx} OR coach_u.id = $${idx})`);
       params.push(coachUserId);
+      idx++;
     }
+
     if (parentUserId) {
       // parent is associated with the wrestler
       where.push(`w.parent_user_id = $${idx++}`);
       params.push(parentUserId);
     }
+
     if (needId) {
       where.push(`m.coach_need_id = $${idx++}`);
       params.push(needId);
     }
+
     if (wrestlerId) {
       where.push(`w.id = $${idx++}`);
       params.push(wrestlerId);
     }
+
     if (statusParam !== "all") {
       where.push(`m.status = $${idx++}`);
       params.push(statusParam);
@@ -68,13 +81,15 @@ export async function GET(req: NextRequest) {
 
     const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
 
-    // Schema used:
-    // - matches: id, coach_need_id, coach_user_id, wrestler_interest_id, status, parent_ok, coach_ok, confirmed_at, created_at, updated_at
-    // - wrestler_interests: id, wrestler_id, notes, event_date (optional)
-    // - wrestlers: id, parent_user_id, first_name, last_name
-    // - coach_needs: id, coach_user_id, event_name, event_date, weight_class, age_group
-    // - teams: teamid, teamname, coach_name, contactemail, userid, logopath
-    // - users: id, name, email, ...
+    /**
+     * JOIN FIXES:
+     * - coach_needs.coach_user_id references users.user_id
+     * - users has BOTH id (internal) and user_id (app id)
+     *
+     * Correct chain:
+     *   coach_needs.coach_user_id  -> users.user_id  (coach_u)
+     *   teams.userid               -> users.id       (team owner linkage)
+     */
     const sql = `
       SELECT
         m.id,
@@ -87,7 +102,7 @@ export async function GET(req: NextRequest) {
         cn.event_name,
         cn.event_date,
         cn.weight_class,
-        cn.age_group,
+        cn.age_group_key,
         wi.notes,
 
         w.first_name  AS wrestler_first_name,
@@ -95,14 +110,23 @@ export async function GET(req: NextRequest) {
 
         t.teamid      AS team_id,
         t.teamname    AS team_name,
-        COALESCE(t.coach_name, u.name) AS team_coach_name,
+        COALESCE(t.coach_name, coach_u.name) AS team_coach_name,
+        coach_u.email AS team_coach_email,
         t.logopath    AS team_logo_path
+
       FROM matches m
       JOIN wrestler_interests wi ON wi.id = m.wrestler_interest_id
       JOIN wrestlers          w  ON w.id = wi.wrestler_id
       JOIN coach_needs        cn ON cn.id = m.coach_need_id
-      LEFT JOIN teams         t  ON t.userid = cn.coach_user_id
-      LEFT JOIN users         u  ON u.id = cn.coach_user_id
+
+      -- Coach user record (correct join: user_id -> coach_user_id)
+      LEFT JOIN users coach_u
+        ON coach_u.user_id = cn.coach_user_id
+
+      -- Team record (correct join: teams.userid -> users.id)
+      LEFT JOIN teams t
+        ON t.userid = coach_u.id
+
       ${whereSql}
       ORDER BY
         COALESCE(cn.event_date, wi.event_date) NULLS LAST,
@@ -169,7 +193,7 @@ export async function POST(req: NextRequest) {
   try {
     await client.query("BEGIN");
 
-    // Ensure the need exists (and get coach_user_id)
+    // Ensure the need exists (and get coach_user_id) — this is users.user_id
     const { rows: needRows } = await client.query(
       `SELECT id, coach_user_id
        FROM coach_needs

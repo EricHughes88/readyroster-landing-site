@@ -3,9 +3,10 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
+import NotificationBell from "./NotificationBell";
 
 type RRRole = "Coach" | "Parent" | "Athlete" | "Admin";
 
@@ -21,15 +22,12 @@ export default function ClientNav() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
 
-  // ✅ Always run hooks
   const [localRole, setLocalRole] = useState<RRRole | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  // ✅ Mark mounted (prevents hydration edge cases)
   useEffect(() => setMounted(true), []);
 
-  // ✅ Read role from localStorage AFTER mount
   useEffect(() => {
     if (!mounted) return;
     try {
@@ -43,7 +41,6 @@ export default function ClientNav() {
     }
   }, [mounted]);
 
-  // ✅ When NextAuth session becomes available, sync it into localStorage
   useEffect(() => {
     if (!mounted) return;
     if (status !== "authenticated") return;
@@ -66,18 +63,15 @@ export default function ClientNav() {
     }
   }, [mounted, status, session]);
 
-  // Close mobile menu on route change
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
 
-  // ✅ Hide nav on auth pages (after hooks)
   const hideNav = pathname === "/login" || pathname === "/create-account";
   if (hideNav) return null;
 
   const isHome = pathname === "/";
 
-  // ✅ Determine role from session first, then localStorage
   const roleFromSession =
     status === "authenticated"
       ? normalizeRole((session?.user as any)?.role)
@@ -85,8 +79,6 @@ export default function ClientNav() {
 
   const role: RRRole | null = roleFromSession ?? localRole ?? null;
 
-  // ✅ Determine "logged in" reliably
-  // Show authed UI if session is authenticated OR localStorage has a user role
   const showAuthedUI = status === "authenticated" || !!localRole;
 
   const dashHref =
@@ -112,7 +104,6 @@ export default function ClientNav() {
     await signOut({ callbackUrl: "/login" });
   }
 
-  // Don’t render nav until mounted to avoid any hydration weirdness
   if (!mounted) return null;
 
   return (
@@ -155,6 +146,8 @@ export default function ClientNav() {
         <div className="hidden md:flex items-center gap-3">
           {showAuthedUI ? (
             <>
+              <NotificationBell />
+
               <Link
                 href={dashHref as any}
                 className="rounded-lg px-3 py-2 bg-white text-slate-900 text-sm font-semibold"
@@ -225,6 +218,13 @@ export default function ClientNav() {
                 >
                   FAQ
                 </a>
+              </div>
+            )}
+
+            {showAuthedUI && (
+              <div className="flex items-center justify-between">
+                <div className="text-slate-300 font-semibold">Notifications</div>
+                <NotificationBell />
               </div>
             )}
 
