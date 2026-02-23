@@ -1,34 +1,27 @@
 // app/admin/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
 type OverviewResponse = {
   ok: boolean;
-  rangeDays: number;
-  generatedAt: string;
-  kpis: {
+  days: number;
+  totals: {
     new_users: number;
     active_users: number;
-    needs_created: number;
-    matches_requested: number;
+    needs_posted: number;
+    match_requests: number;
     messages_sent: number;
   };
-  series: { day: string; new_users: number; activity_events: number }[];
+  trend: {
+    new_users: { day: string; count: number }[];
+    activity: { day: string; total: number }[];
+  };
 };
 
-type FeedItem = {
-  id: number;
-  user_id: number;
-  event_type: string;
-  entity_type: string | null;
-  entity_id: number | null;
-  metadata: any;
-  created_at: string;
-};
-
-type TractionItem = {
+type TractionRow = {
+  event: string;
   event_name: string;
   coach_needs: number;
   unique_coaches: number;
@@ -37,318 +30,333 @@ type TractionItem = {
   supply_gap: number;
 };
 
-type ApiError = { ok: false; message?: string; details?: unknown };
-type OverviewApiResponse = OverviewResponse | ApiError;
-type FeedApiResponse = { ok: true; items: FeedItem[] } | ApiError;
-type TractionApiResponse = { ok: true; days: number; items: TractionItem[] } | ApiError;
+type TractionResponse = {
+  ok: boolean;
+  days: number;
+  limit: number;
+  rows?: TractionRow[];
+  data?: TractionRow[];
+  events?: TractionRow[];
+  traction?: TractionRow[];
+};
 
-function fmtDay(d: string) {
-  return new Date(d + "T00:00:00").toLocaleDateString();
+type FeedItem = {
+  id: string | number;
+  type: string;
+  created_at: string;
+  message?: string | null;
+  meta?: any;
+};
+
+type FeedResponse = {
+  ok: boolean;
+  rows?: FeedItem[];
+  feed?: FeedItem[];
+  data?: FeedItem[];
+  items?: FeedItem[];
+};
+
+function clampDays(n: number) {
+  if (!Number.isFinite(n)) return 30;
+  return Math.max(1, Math.min(365, Math.floor(n)));
 }
 
-function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString();
+function toNum(x: any) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : 0;
 }
 
-function Sparkline({ values }: { values: number[] }) {
-  const w = 220;
-  const h = 40;
-  const max = Math.max(1, ...values);
-  const min = Math.min(0, ...values);
+function pickArray<T>(obj: any, keys: string[]): T[] {
+  for (const k of keys) {
+    if (Array.isArray(obj?.[k])) return obj[k] as T[];
+  }
+  return [];
+}
 
-  const pts = values.map((v, i) => {
-    const x = (i / Math.max(1, values.length - 1)) * w;
-    const y = h - ((v - min) / (max - min || 1)) * h;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
+/** Tiny sparkline (SVG polyline) */
+function Sparkline({
+  values,
+  height = 44,
+}: {
+  values: number[];
+  height?: number;
+}) {
+  const width = 280;
+  const pad = 6;
+
+  const safe = values.length ? values : [0];
+  const min = Math.min(...safe);
+  const max = Math.max(...safe);
+
+  const points = safe
+    .map((v, i) => {
+      const x =
+        pad + (i * (width - pad * 2)) / Math.max(1, safe.length - 1);
+      const t = max === min ? 0.5 : (v - min) / (max - min);
+      const y = pad + (1 - t) * (height - pad * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
 
   return (
-    <svg width={w} height={h} style={{ display: "block" }}>
-      <polyline fill="none" stroke="currentColor" strokeWidth="2" points={pts.join(" ")} />
+    <svg width={width} height={height} style={{ display: "block" }}>
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        opacity={0.9}
+      />
     </svg>
   );
 }
 
 export default function AdminDashboardPage() {
-  const { data: session, status } = useSession();
-  const role = (session?.user as any)?.role;
-
   const [days, setDays] = useState(30);
-  const [overview, setOverview] = useState<OverviewResponse | null>(null);
-  const [feed, setFeed] = useState<FeedItem[]>([]);
-  const [traction, setTraction] = useState<TractionItem[]>([]);
-  const [loading, setLoading] = useState(false);
+
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      window.location.href = "/login";
-    }
-  }, [status]);
+  const [overview, setOverview] = useState<OverviewResponse | null>(null);
+  const [traction, setTraction] = useState<TractionRow[]>([]);
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+
+  // IMPORTANT: set this client-side only to avoid hydration mismatch
+  const [updatedAt, setUpdatedAt] = useState<string>("");
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      if (status !== "authenticated") return;
-
-      if (role !== "Admin") {
-        setErr("You are logged in, but you do not have Admin access.");
-        return;
-      }
-
-      setLoading(true);
-      setErr(null);
-
       try {
-        const [oRes, fRes, tRes] = await Promise.all([
-          fetch(`/api/admin/analytics/overview?days=${days}`),
-          fetch(`/api/admin/analytics/feed?limit=60`),
-          fetch(`/api/admin/analytics/event-traction?days=${days}&limit=50`),
+        setLoading(true);
+        setErr(null);
+
+        const d = clampDays(days);
+
+        const [ovRes, trRes, fdRes] = await Promise.all([
+          fetch(`/api/admin/analytics/overview?days=${d}`, { cache: "no-store" }),
+          fetch(`/api/admin/analytics/event-traction?days=${d}&limit=50`, {
+            cache: "no-store",
+          }),
+          fetch(`/api/admin/analytics/feed?limit=60`, { cache: "no-store" }),
         ]);
 
-        const oJson = (await oRes.json()) as OverviewApiResponse;
-        const fJson = (await fRes.json()) as FeedApiResponse;
-        const tJson = (await tRes.json()) as TractionApiResponse;
+        const ov: OverviewResponse = await ovRes.json();
+        const tr: TractionResponse = await trRes.json();
+        const fd: FeedResponse = await fdRes.json();
 
-        if (!oRes.ok || !("ok" in oJson) || (oJson as any).ok !== true) {
-          const msg = (oJson as any)?.message || `Overview failed (${oRes.status})`;
-          throw new Error(msg);
-        }
+        if (!ovRes.ok || !ov?.ok) throw new Error((ov as any)?.message || "Failed overview");
+        if (!trRes.ok || !tr?.ok) throw new Error((tr as any)?.message || "Failed traction");
+        if (!fdRes.ok || !fd?.ok) throw new Error((fd as any)?.message || "Failed feed");
 
-        if (!fRes.ok || !("ok" in fJson) || (fJson as any).ok !== true) {
-          const msg = (fJson as any)?.message || `Feed failed (${fRes.status})`;
-          throw new Error(msg);
-        }
+        if (cancelled) return;
 
-        if (!tRes.ok || !("ok" in tJson) || (tJson as any).ok !== true) {
-          const msg = (tJson as any)?.message || `Event traction failed (${tRes.status})`;
-          throw new Error(msg);
-        }
+        setOverview(ov);
 
-        if (!cancelled) {
-          setOverview(oJson as OverviewResponse);
-          setFeed((fJson as any).items || []);
-          setTraction((tJson as any).items || []);
-        }
+        // Your traction endpoint returns the same list under multiple keys — normalize it.
+        const rows = pickArray<TractionRow>(tr, ["rows", "data", "events", "traction"]);
+        setTraction(rows);
+
+        const items = pickArray<FeedItem>(fd, ["rows", "feed", "data", "items"]);
+        setFeed(items);
+
+        setUpdatedAt(new Date().toLocaleString());
       } catch (e: any) {
-        if (!cancelled) setErr(String(e?.message || e));
+        if (!cancelled) setErr(String(e?.message ?? e));
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
     load();
+
     return () => {
       cancelled = true;
     };
-  }, [days, role, status]);
+  }, [days]);
 
-  const newUsersValues = overview?.series?.map((r) => r.new_users) ?? [];
-  const activityValues = overview?.series?.map((r) => r.activity_events) ?? [];
+  const totals = overview?.totals;
+
+  const newUsersSeries = useMemo(
+    () => (overview?.trend?.new_users ?? []).map((d) => toNum(d.count)),
+    [overview]
+  );
+
+  const activitySeries = useMemo(
+    () => (overview?.trend?.activity ?? []).map((d) => toNum(d.total)),
+    [overview]
+  );
 
   return (
-    <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+    <main style={{ padding: 20, maxWidth: 1200, margin: "0 auto", color: "#e5e7eb" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <div>
-          <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0 }}>Admin Dashboard</h1>
+          <h1 style={{ fontSize: 34, fontWeight: 900, margin: 0, color: "#fff" }}>
+            Admin Dashboard
+          </h1>
           <p style={{ marginTop: 6, color: "#94a3b8" }}>
             New users + what users are putting out there (activity feed)
           </p>
-          {status === "authenticated" && (
-            <div style={{ color: "#94a3b8", fontSize: 12 }}>
-              Logged in as {(session?.user as any)?.email} • role: {role}
-            </div>
-          )}
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", color: "#e5e7eb" }}>
-            Range:
-            <select
-              value={days}
-              onChange={(e) => setDays(Number(e.target.value))}
-              style={{
-                background: "#111827",
-                color: "#ffffff",
-                border: "1px solid #334155",
-                borderRadius: 8,
-                padding: "6px 10px",
-                outline: "none",
-                cursor: "pointer",
-              }}
-            >
-              <option value={7} style={{ background: "#111827", color: "#fff" }}>7 days</option>
-              <option value={30} style={{ background: "#111827", color: "#fff" }}>30 days</option>
-              <option value={90} style={{ background: "#111827", color: "#fff" }}>90 days</option>
-            </select>
-          </label>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ color: "#94a3b8" }}>Range:</span>
+          <select
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            style={{
+              border: "1px solid #334155",
+              background: "#0b1220",
+              color: "#fff",
+              padding: "8px 10px",
+              borderRadius: 10,
+              cursor: "pointer",
+            }}
+          >
+            <option value={7}>7 days</option>
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
+          </select>
         </div>
-      </header>
-
-      {status === "loading" && <div style={{ marginTop: 16, color: "#94a3b8" }}>Checking session…</div>}
+      </div>
 
       {err && (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f99", borderRadius: 10, background: "#fff5f5" }}>
+        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f99", borderRadius: 10, background: "#fff5f5", color: "#111" }}>
           <b>Error:</b> {err}
         </div>
       )}
 
-      <section style={{ marginTop: 18 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
-          {[
-            ["New users", overview?.kpis?.new_users ?? 0],
-            ["Active users", overview?.kpis?.active_users ?? 0],
-            ["Needs posted", overview?.kpis?.needs_created ?? 0],
-            ["Match requests", overview?.kpis?.matches_requested ?? 0],
-            ["Messages sent", overview?.kpis?.messages_sent ?? 0],
-          ].map(([label, value]) => (
-            <div key={label} style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
-              <div style={{ color: "#94a3b8", fontSize: 13 }}>{label}</div>
-              <div style={{ fontSize: 26, fontWeight: 800, marginTop: 6, color: "#fff" }}>{value as number}</div>
+      {/* Stat cards */}
+      <section style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 12 }}>
+        {[
+          ["New users", toNum(totals?.new_users)],
+          ["Active users", toNum(totals?.active_users)],
+          ["Needs posted", toNum(totals?.needs_posted)],
+          ["Match requests", toNum(totals?.match_requests)],
+          ["Messages sent", toNum(totals?.messages_sent)],
+        ].map(([label, value]) => (
+          <div
+            key={String(label)}
+            style={{
+              border: "1px solid #334155",
+              borderRadius: 12,
+              padding: 14,
+              background: "rgba(2,6,23,0.35)",
+            }}
+          >
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>{label}</div>
+            <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", marginTop: 6 }}>
+              {loading ? "…" : value}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </section>
 
-      <section style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      {/* Trend charts */}
+      <section style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <b style={{ color: "#fff" }}>New users trend</b>
             <span style={{ color: "#94a3b8", fontSize: 12 }}>
-              {overview?.generatedAt ? `Updated: ${fmtTime(overview.generatedAt)}` : ""}
+              {updatedAt ? `Updated: ${updatedAt}` : ""}
             </span>
           </div>
-          <div style={{ marginTop: 10, color: "#fff" }}>
-            <Sparkline values={newUsersValues} />
-          </div>
-          <div style={{ marginTop: 8, color: "#94a3b8", fontSize: 12 }}>
-            {overview?.series?.length
-              ? `From ${fmtDay(overview.series[0].day)} to ${fmtDay(overview.series[overview.series.length - 1].day)}`
-              : ""}
+          <div style={{ marginTop: 10, color: "#e5e7eb" }}>
+            {loading ? <span style={{ color: "#94a3b8" }}>Loading…</span> : <Sparkline values={newUsersSeries} />}
           </div>
         </div>
 
         <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
-          <b style={{ color: "#fff" }}>Activity events trend</b>
-          <div style={{ marginTop: 10, color: "#fff" }}>
-            <Sparkline values={activityValues} />
-          </div>
-          <div style={{ marginTop: 8, color: "#94a3b8", fontSize: 12 }}>
-            Includes logged actions (needs, requests, messages, etc.)
-          </div>
-        </div>
-      </section>
-
-      {/* ✅ NEW: Top events table */}
-      <section style={{ marginTop: 18 }}>
-        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <b style={{ color: "#fff" }}>Top events by traction</b>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <b style={{ color: "#fff" }}>Activity events trend</b>
             <span style={{ color: "#94a3b8", fontSize: 12 }}>
-              Coach demand vs Athlete interest (last {days} days)
+              Includes logged actions (needs, interests, requests, messages, etc.)
             </span>
           </div>
-
-          <div style={{ marginTop: 10, overflowX: "auto" }}>
-            {loading && <div style={{ color: "#94a3b8" }}>Loading…</div>}
-
-            {!loading && traction.length === 0 && (
-              <div style={{ color: "#94a3b8" }}>
-                No traction data yet — once we start logging NEED_POSTED and ATHLETE_INTEREST, this will populate.
-              </div>
-            )}
-
-            {!loading && traction.length > 0 && (
-              <table style={{ width: "100%", borderCollapse: "collapse", color: "#e5e7eb" }}>
-                <thead>
-                  <tr style={{ textAlign: "left", color: "#94a3b8" }}>
-                    <th style={{ padding: "8px 6px" }}>Event</th>
-                    <th style={{ padding: "8px 6px" }}>Coach needs</th>
-                    <th style={{ padding: "8px 6px" }}>Unique coaches</th>
-                    <th style={{ padding: "8px 6px" }}>Athlete interest</th>
-                    <th style={{ padding: "8px 6px" }}>Unique athletes</th>
-                    <th style={{ padding: "8px 6px" }}>Supply gap</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {traction.map((r) => (
-                    <tr key={r.event_name} style={{ borderTop: "1px solid #334155" }}>
-                      <td style={{ padding: "8px 6px", fontWeight: 800, color: "#fff" }}>{r.event_name}</td>
-                      <td style={{ padding: "8px 6px" }}>{r.coach_needs}</td>
-                      <td style={{ padding: "8px 6px" }}>{r.unique_coaches}</td>
-                      <td style={{ padding: "8px 6px" }}>{r.athlete_interest}</td>
-                      <td style={{ padding: "8px 6px" }}>{r.unique_athletes}</td>
-                      <td style={{ padding: "8px 6px", fontWeight: 700 }}>
-                        {r.supply_gap}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+          <div style={{ marginTop: 10, color: "#e5e7eb" }}>
+            {loading ? <span style={{ color: "#94a3b8" }}>Loading…</span> : <Sparkline values={activitySeries} />}
           </div>
         </div>
       </section>
 
-      <section style={{ marginTop: 18 }}>
-        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <b style={{ color: "#fff" }}>Recent activity feed</b>
-            <span style={{ color: "#94a3b8", fontSize: 12 }}>Showing {feed.length} latest actions</span>
+      {/* Top events by traction */}
+      <section style={{ marginTop: 14, border: "1px solid #334155", borderRadius: 12 }}>
+        <div style={{ padding: 12, borderBottom: "1px solid #334155" }}>
+          <b style={{ color: "#fff" }}>Top events by traction</b>
+          <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
+            Coach demand vs Athlete interest ({days} days)
           </div>
+        </div>
 
-          <div style={{ marginTop: 10 }}>
-            {loading && <div style={{ color: "#94a3b8" }}>Loading…</div>}
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: "#94a3b8" }}>
+                <th style={{ padding: "10px 12px" }}>Event</th>
+                <th style={{ padding: "10px 12px" }}>Coach needs</th>
+                <th style={{ padding: "10px 12px" }}>Unique coaches</th>
+                <th style={{ padding: "10px 12px" }}>Athlete interest</th>
+                <th style={{ padding: "10px 12px" }}>Unique athletes</th>
+                <th style={{ padding: "10px 12px" }}>Supply gap</th>
+              </tr>
+            </thead>
+            <tbody>
+              {traction.map((r, idx) => (
+                <tr key={`${r.event_name}-${idx}`} style={{ borderTop: "1px solid #334155" }}>
+                  <td style={{ padding: "10px 12px" }}>
+                    <Link
+                      href={`/admin/events/${encodeURIComponent(r.event_name)}` as any}
+                      style={{ color: "#fff", textDecoration: "underline" }}
+                    >
+                      {r.event_name}
+                    </Link>
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>{toNum(r.coach_needs)}</td>
+                  <td style={{ padding: "10px 12px" }}>{toNum(r.unique_coaches)}</td>
+                  <td style={{ padding: "10px 12px" }}>{toNum(r.athlete_interest)}</td>
+                  <td style={{ padding: "10px 12px" }}>{toNum(r.unique_athletes)}</td>
+                  <td style={{ padding: "10px 12px" }}>{toNum(r.supply_gap)}</td>
+                </tr>
+              ))}
 
-            {!loading && feed.length === 0 && (
-              <div style={{ color: "#94a3b8" }}>
-                No activity yet — once you start logging events, this fills up.
-              </div>
-            )}
+              {!loading && traction.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ padding: 12, color: "#94a3b8" }}>
+                    No traction data yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-            {!loading && feed.length > 0 && (
-              <div style={{ display: "grid", gap: 10 }}>
-                {feed.map((it) => (
-                  <div key={it.id} style={{ padding: 10, border: "1px solid #334155", borderRadius: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                      <div style={{ fontWeight: 700, color: "#fff" }}>
-                        {it.event_type}
-                        <span style={{ fontWeight: 400, color: "#94a3b8" }}> • user {it.user_id}</span>
-                      </div>
-                      <div style={{ color: "#94a3b8", fontSize: 12 }}>{fmtTime(it.created_at)}</div>
-                    </div>
+      {/* Recent activity feed (optional, but keeps layout consistent) */}
+      <section style={{ marginTop: 14, border: "1px solid #334155", borderRadius: 12 }}>
+        <div style={{ padding: 12, borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between" }}>
+          <b style={{ color: "#fff" }}>Recent activity feed</b>
+          <span style={{ color: "#94a3b8", fontSize: 12 }}>
+            Showing {Math.min(10, feed.length)} latest actions
+          </span>
+        </div>
 
-                    <div style={{ marginTop: 6, color: "#e5e7eb", fontSize: 13 }}>
-                      {it.entity_type ? (
-                        <>
-                          {it.entity_type} {it.entity_id ? `#${it.entity_id}` : ""}
-                        </>
-                      ) : (
-                        <span style={{ color: "#94a3b8" }}>No entity</span>
-                      )}
-                    </div>
-
-                    {it.metadata && Object.keys(it.metadata).length > 0 && (
-                      <pre
-                        style={{
-                          marginTop: 8,
-                          padding: 10,
-                          background: "#0b1220",
-                          borderRadius: 8,
-                          overflowX: "auto",
-                          color: "#e5e7eb",
-                          border: "1px solid #334155",
-                        }}
-                      >
-{JSON.stringify(it.metadata, null, 2)}
-                      </pre>
-                    )}
+        <div style={{ padding: 12 }}>
+          {!loading && feed.length === 0 ? (
+            <div style={{ color: "#94a3b8" }}>No activity yet.</div>
+          ) : (
+            feed.slice(0, 10).map((f, i) => (
+              <div key={`${f.id}-${i}`} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #334155" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ color: "#fff", fontWeight: 700 }}>{f.type}</div>
+                  <div style={{ color: "#94a3b8", fontSize: 12 }}>
+                    {f.created_at ? new Date(f.created_at).toLocaleString() : ""}
                   </div>
-                ))}
+                </div>
+                {f.message ? <div style={{ marginTop: 6, color: "#cbd5e1" }}>{f.message}</div> : null}
               </div>
-            )}
-          </div>
+            ))
+          )}
         </div>
       </section>
     </main>

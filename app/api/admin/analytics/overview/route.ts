@@ -1,122 +1,178 @@
 // app/api/admin/analytics/overview/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
-import { pool } from "@/lib/db";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/auth.config";
+import { Pool } from "pg";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function intParam(url: URL, key: string, def: number) {
-  const raw = url.searchParams.get(key);
-  const n = raw ? Number(raw) : def;
-  return Number.isFinite(n) ? n : def;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+function jsonError(message: string, status = 500, details?: unknown) {
+  return NextResponse.json({ ok: false, message, details }, { status });
 }
 
-function isAdmin(session: any) {
-  return session?.user && (session.user as any).role === "Admin";
+function clampDays(raw: string | null) {
+  const n = Number(raw ?? 30);
+  if (!Number.isFinite(n)) return 30;
+  return Math.max(1, Math.min(365, Math.floor(n)));
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!isAdmin(session)) {
-      return NextResponse.json({ ok: false, message: "Unauthorized" }, { status: 401 });
-    }
-
     const url = new URL(req.url);
-    const days = Math.min(Math.max(intParam(url, "days", 30), 1), 365);
+    const days = clampDays(url.searchParams.get("days"));
 
-    // KPIs:
-    // - new users in range (users.created_at)
-    // - active users in range (activity_events)
-    // - totals by event type in range
-    const kpiSql = `
-      with params as (
-        select now() - ($1::int * interval '1 day') as since
+    const sql = `
+      WITH params AS (
+        SELECT
+          $1::int AS days,
+          (CURRENT_DATE - ($1::int - 1))::date AS start_day,
+          CURRENT_DATE::date AS end_day
       ),
-      new_users as (
-        select count(*)::int as cnt
-        from public.users u, params p
-        where u.created_at >= p.since
+
+      series AS (
+        SELECT d::date AS day
+        FROM params p
+        CROSS JOIN generate_series(p.start_day, p.end_day, interval '1 day') AS d
       ),
-      active_users as (
-        select count(distinct ae.user_id)::int as cnt
-        from public.activity_events ae, params p
-        where ae.created_at >= p.since
+
+      new_users AS (
+        SELECT
+          date_trunc('day', u.created_at)::date AS day,
+          COUNT(*)::int AS count
+        FROM public.users u
+        JOIN params p ON true
+        WHERE u.created_at >= p.start_day
+          AND u.created_at < (p.end_day + 1)
+        GROUP BY 1
       ),
-      events_by_type as (
-        select ae.event_type, count(*)::int as cnt
-        from public.activity_events ae, params p
-        where ae.created_at >= p.since
-        group by ae.event_type
+
+      needs_posted AS (
+        SELECT
+          date_trunc('day', cn.created_at)::date AS day,
+          COUNT(*)::int AS count
+        FROM public.coach_needs cn
+        JOIN params p ON true
+        WHERE cn.created_at >= p.start_day
+          AND cn.created_at < (p.end_day + 1)
+        GROUP BY 1
+      ),
+
+      athlete_interest AS (
+        SELECT
+          date_trunc('day', wi.created_at)::date AS day,
+          COUNT(*)::int AS count
+        FROM public.wrestler_interests wi
+        JOIN params p ON true
+        WHERE wi.created_at >= p.start_day
+          AND wi.created_at < (p.end_day + 1)
+        GROUP BY 1
+      ),
+
+      match_requests AS (
+        SELECT
+          date_trunc('day', m.created_at)::date AS day,
+          COUNT(*)::int AS count
+        FROM public.matches m
+        JOIN params p ON true
+        WHERE m.created_at >= p.start_day
+          AND m.created_at < (p.end_day + 1)
+        GROUP BY 1
+      ),
+
+      -- IMPORTANT: using msg.sentat (your actual column)
+      messages_sent AS (
+        SELECT
+          date_trunc('day', msg.sentat)::date AS day,
+          COUNT(*)::int AS count
+        FROM public.messages msg
+        JOIN params p ON true
+        WHERE msg.sentat >= p.start_day
+          AND msg.sentat < (p.end_day + 1)
+        GROUP BY 1
       )
-      select
-        (select cnt from new_users) as new_users,
-        (select cnt from active_users) as active_users,
-        coalesce((select cnt from events_by_type where event_type = 'NEED_CREATED'), 0) as needs_created,
-        coalesce((select cnt from events_by_type where event_type = 'MATCH_REQUESTED'), 0) as matches_requested,
-        coalesce((select cnt from events_by_type where event_type = 'MESSAGE_SENT'), 0) as messages_sent
+
+      SELECT
+        s.day,
+
+        COALESCE(nu.count, 0)::int  AS new_users,
+        COALESCE(np.count, 0)::int  AS needs_posted,
+        COALESCE(ai.count, 0)::int  AS athlete_interest,
+        COALESCE(mr.count, 0)::int  AS match_requests,
+        COALESCE(ms.count, 0)::int  AS messages_sent,
+
+        (
+          COALESCE(np.count, 0)
+          + COALESCE(ai.count, 0)
+          + COALESCE(mr.count, 0)
+          + COALESCE(ms.count, 0)
+        )::int AS activity_total
+
+      FROM series s
+      LEFT JOIN new_users nu        ON nu.day = s.day
+      LEFT JOIN needs_posted np     ON np.day = s.day
+      LEFT JOIN athlete_interest ai ON ai.day = s.day
+      LEFT JOIN match_requests mr   ON mr.day = s.day
+      LEFT JOIN messages_sent ms    ON ms.day = s.day
+      ORDER BY s.day ASC;
     `;
 
-    const kpiRes = await pool.query(kpiSql, [days]);
-    const kpis = kpiRes.rows[0] ?? {
-      new_users: 0,
-      active_users: 0,
-      needs_created: 0,
-      matches_requested: 0,
-      messages_sent: 0,
-    };
+    const result = await pool.query(sql, [days]);
 
-    // Time series (zero-filled) for last N days
-    const seriesSql = `
-      with params as (
-        select
-          date_trunc('day', now())::date as today,
-          (date_trunc('day', now()) - (($1::int - 1) * interval '1 day'))::date as start_day
-      ),
-      days as (
-        select generate_series(
-          (select start_day from params),
-          (select today from params),
-          interval '1 day'
-        )::date as day
-      ),
-      users_per_day as (
-        select date_trunc('day', created_at)::date as day, count(*)::int as cnt
-        from public.users
-        where created_at >= (select start_day from params)
-        group by 1
-      ),
-      activity_per_day as (
-        select date_trunc('day', created_at)::date as day, count(*)::int as cnt
-        from public.activity_events
-        where created_at >= (select start_day from params)
-        group by 1
-      )
-      select
-        d.day,
-        coalesce(u.cnt, 0) as new_users,
-        coalesce(a.cnt, 0) as activity_events
-      from days d
-      left join users_per_day u on u.day = d.day
-      left join activity_per_day a on a.day = d.day
-      order by d.day asc
-    `;
+    const trend = result.rows.map((r) => ({
+      day: r.day,
+      new_users: Number(r.new_users ?? 0),
+      needs_posted: Number(r.needs_posted ?? 0),
+      athlete_interest: Number(r.athlete_interest ?? 0),
+      match_requests: Number(r.match_requests ?? 0),
+      messages_sent: Number(r.messages_sent ?? 0),
+      activity_total: Number(r.activity_total ?? 0),
+    }));
 
-    const seriesRes = await pool.query(seriesSql, [days]);
+    const totals = trend.reduce(
+      (acc, d) => {
+        acc.new_users += d.new_users;
+        acc.needs_posted += d.needs_posted;
+        acc.athlete_interest += d.athlete_interest;
+        acc.match_requests += d.match_requests;
+        acc.messages_sent += d.messages_sent;
+        return acc;
+      },
+      {
+        new_users: 0,
+        needs_posted: 0,
+        athlete_interest: 0,
+        match_requests: 0,
+        messages_sent: 0,
+      }
+    );
 
     return NextResponse.json({
       ok: true,
-      rangeDays: days,
-      kpis,
-      series: seriesRes.rows,
-      generatedAt: new Date().toISOString(),
+      days,
+      totals: {
+        new_users: totals.new_users,
+        active_users: 0,
+        needs_posted: totals.needs_posted,
+        match_requests: totals.match_requests,
+        messages_sent: totals.messages_sent,
+      },
+      trend: {
+        new_users: trend.map((d) => ({
+          day: d.day,
+          count: d.new_users,
+        })),
+        activity: trend.map((d) => ({
+          day: d.day,
+          total: d.activity_total,
+        })),
+      },
     });
-  } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, message: "Failed to load analytics", details: String(err?.message || err) },
-      { status: 500 }
-    );
+  } catch (e: any) {
+    console.error("[overview] error:", e);
+    return jsonError("Server error", 500, e?.message ?? String(e));
   }
 }
