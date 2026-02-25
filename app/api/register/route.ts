@@ -18,11 +18,25 @@ const RegisterSchema = z.object({
   email: z.string().email("Invalid email"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   role: RoleEnum,
+
+  // ✅ NEW
+  phone: z.string().trim().optional().nullable(),
 });
 
 const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL })
   : null;
+
+function splitName(full: string) {
+  const cleaned = (full || "").trim().replace(/\s+/g, " ");
+  if (!cleaned) return { firstname: "", lastname: "" };
+  const parts = cleaned.split(" ");
+  if (parts.length === 1) return { firstname: parts[0], lastname: "" };
+  return {
+    firstname: parts.slice(0, -1).join(" "),
+    lastname: parts.slice(-1)[0],
+  };
+}
 
 export async function POST(req: Request) {
   try {
@@ -35,8 +49,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, email, password, role } = parsed.data;
+    const { name, email, password, role, phone } = parsed.data;
     const passwordHash = await bcrypt.hash(password, 10);
+
+    const { firstname, lastname } = splitName(name);
+    const phoneNorm =
+      phone && phone.trim().length > 0 ? phone.trim() : null;
 
     // Dev fallback when no DB is configured
     if (!pool) {
@@ -46,7 +64,10 @@ export async function POST(req: Request) {
           user: {
             id: 1,
             name,
+            firstname,
+            lastname,
             email,
+            phone: phoneNorm,
             role,
             created_at: new Date().toISOString(),
           },
@@ -70,35 +91,69 @@ export async function POST(req: Request) {
         );
       }
 
-      // Does 'role' column exist? (rowCount can be number | null → guard it)
-      const roleCol = await client.query(
-        `SELECT 1
+      // Check which columns exist (role, phone, firstname/lastname, name)
+      const cols = await client.query(
+        `SELECT column_name
            FROM information_schema.columns
           WHERE table_schema = 'public'
             AND table_name = 'users'
-            AND column_name = 'role'`
+            AND column_name IN ('role','phone','firstname','lastname','name')`
       );
-      const hasRoleCol =
-        (roleCol.rowCount ?? roleCol.rows?.length ?? 0) > 0;
 
-      let userRow: any;
-      if (hasRoleCol) {
-        const res = await client.query(
-          `INSERT INTO public.users (name, email, password_hash, role)
-           VALUES ($1, $2, $3, $4)
-           RETURNING COALESCE(id, user_id) AS id, name, email, role, created_at`,
-          [name, email, passwordHash, role]
-        );
-        userRow = res.rows[0];
-      } else {
-        const res = await client.query(
-          `INSERT INTO public.users (name, email, password_hash)
-           VALUES ($1, $2, $3)
-           RETURNING COALESCE(id, user_id) AS id, name, email, created_at`,
-          [name, email, passwordHash]
-        );
-        userRow = { ...res.rows[0], role };
-      }
+      const set = new Set((cols.rows || []).map((r: any) => r.column_name));
+
+      const hasRoleCol = set.has("role");
+      const hasPhoneCol = set.has("phone");
+      const hasFirst = set.has("firstname");
+      const hasLast = set.has("lastname");
+      const hasName = set.has("name");
+
+      // Build INSERT dynamically to match your actual schema safely
+      const fields: string[] = [];
+      const values: any[] = [];
+      const placeholders: string[] = [];
+
+      const push = (field: string, value: any) => {
+        fields.push(field);
+        values.push(value);
+        placeholders.push(`$${values.length}`);
+      };
+
+      // Prefer firstname/lastname if they exist
+      if (hasFirst) push("firstname", firstname || null);
+      if (hasLast) push("lastname", lastname || null);
+
+      // Keep "name" too if you have it (helps old UI code)
+      if (hasName) push("name", name);
+
+      push("email", email);
+      push("password_hash", passwordHash);
+
+      if (hasRoleCol) push("role", role);
+      if (hasPhoneCol) push("phone", phoneNorm);
+
+      const sql = `
+        INSERT INTO public.users (${fields.join(", ")})
+        VALUES (${placeholders.join(", ")})
+        RETURNING
+          COALESCE(id, user_id) AS id,
+          ${hasName ? "name," : ""}
+          ${hasFirst ? "firstname," : ""}
+          ${hasLast ? "lastname," : ""}
+          email
+          ${hasRoleCol ? ", role" : ""}
+          ${hasPhoneCol ? ", phone" : ""}
+          , created_at
+      `;
+
+      const res = await client.query(sql, values);
+      const userRow = res.rows[0];
+
+      // If role column didn't exist, still return role for your UI
+      if (!hasRoleCol) userRow.role = role;
+
+      // If name wasn't returned, create it for compatibility
+      if (!hasName) userRow.name = name;
 
       return NextResponse.json({ ok: true, user: userRow }, { status: 201 });
     } finally {

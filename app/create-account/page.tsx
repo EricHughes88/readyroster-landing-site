@@ -10,9 +10,11 @@ export default function CreateAccountPage() {
     role: "" as "" | Role,
     name: "",
     email: "",
+    phone: "", // ✅ NEW
     password: "",
     confirm: "",
   });
+
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -35,6 +37,7 @@ export default function CreateAccountPage() {
           role: form.role,
           name: form.name.trim(),
           email: form.email.trim(),
+          phone: form.phone.trim() || null, // ✅ NEW
           password: form.password,
         }),
       });
@@ -118,6 +121,18 @@ export default function CreateAccountPage() {
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             required
+          />
+        </label>
+
+        {/* ✅ Phone */}
+        <label className="block">
+          <span className="rr-label">Phone (optional)</span>
+          <input
+            type="tel"
+            className="rr-input"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            placeholder="e.g. 555-555-5555"
           />
         </label>
 

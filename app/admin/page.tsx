@@ -146,16 +146,24 @@ export default function AdminDashboardPage() {
         const tr: TractionResponse = await trRes.json();
         const fd: FeedResponse = await fdRes.json();
 
-        if (!ovRes.ok || !ov?.ok) throw new Error((ov as any)?.message || "Failed overview");
-        if (!trRes.ok || !tr?.ok) throw new Error((tr as any)?.message || "Failed traction");
-        if (!fdRes.ok || !fd?.ok) throw new Error((fd as any)?.message || "Failed feed");
+        if (!ovRes.ok || !ov?.ok)
+          throw new Error((ov as any)?.message || "Failed overview");
+        if (!trRes.ok || !tr?.ok)
+          throw new Error((tr as any)?.message || "Failed traction");
+        if (!fdRes.ok || !fd?.ok)
+          throw new Error((fd as any)?.message || "Failed feed");
 
         if (cancelled) return;
 
         setOverview(ov);
 
         // Your traction endpoint returns the same list under multiple keys — normalize it.
-        const rows = pickArray<TractionRow>(tr, ["rows", "data", "events", "traction"]);
+        const rows = pickArray<TractionRow>(tr, [
+          "rows",
+          "data",
+          "events",
+          "traction",
+        ]);
         setTraction(rows);
 
         const items = pickArray<FeedItem>(fd, ["rows", "feed", "data", "items"]);
@@ -189,10 +197,26 @@ export default function AdminDashboardPage() {
   );
 
   return (
-    <main style={{ padding: 20, maxWidth: 1200, margin: "0 auto", color: "#e5e7eb" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+    <main
+      style={{
+        padding: 20,
+        maxWidth: 1200,
+        margin: "0 auto",
+        color: "#e5e7eb",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "center",
+        }}
+      >
         <div>
-          <h1 style={{ fontSize: 34, fontWeight: 900, margin: 0, color: "#fff" }}>
+          <h1
+            style={{ fontSize: 34, fontWeight: 900, margin: 0, color: "#fff" }}
+          >
             Admin Dashboard
           </h1>
           <p style={{ marginTop: 6, color: "#94a3b8" }}>
@@ -200,7 +224,42 @@ export default function AdminDashboardPage() {
           </p>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {/* ✅ RIGHT SIDE ACTIONS */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {/* ✅ Directory buttons */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <Link
+              href={"/admin/athletes" as any}
+              style={{
+                border: "1px solid #334155",
+                background: "#0b1220",
+                color: "#fff",
+                padding: "8px 12px",
+                borderRadius: 10,
+                textDecoration: "none",
+                fontWeight: 700,
+              }}
+            >
+              Athletes DB
+            </Link>
+
+            <Link
+              href={"/admin/coaches" as any}
+              style={{
+                border: "1px solid #334155",
+                background: "#0b1220",
+                color: "#fff",
+                padding: "8px 12px",
+                borderRadius: 10,
+                textDecoration: "none",
+                fontWeight: 700,
+              }}
+            >
+              Coaches DB
+            </Link>
+          </div>
+
+          {/* Range selector */}
           <span style={{ color: "#94a3b8" }}>Range:</span>
           <select
             value={days}
@@ -222,13 +281,29 @@ export default function AdminDashboardPage() {
       </div>
 
       {err && (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f99", borderRadius: 10, background: "#fff5f5", color: "#111" }}>
+        <div
+          style={{
+            marginTop: 16,
+            padding: 12,
+            border: "1px solid #f99",
+            borderRadius: 10,
+            background: "#fff5f5",
+            color: "#111",
+          }}
+        >
           <b>Error:</b> {err}
         </div>
       )}
 
       {/* Stat cards */}
-      <section style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 12 }}>
+      <section
+        style={{
+          marginTop: 16,
+          display: "grid",
+          gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+          gap: 12,
+        }}
+      >
         {[
           ["New users", toNum(totals?.new_users)],
           ["Active users", toNum(totals?.active_users)],
@@ -246,7 +321,14 @@ export default function AdminDashboardPage() {
             }}
           >
             <div style={{ color: "#94a3b8", fontSize: 12 }}>{label}</div>
-            <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", marginTop: 6 }}>
+            <div
+              style={{
+                fontSize: 26,
+                fontWeight: 900,
+                color: "#fff",
+                marginTop: 6,
+              }}
+            >
               {loading ? "…" : value}
             </div>
           </div>
@@ -254,34 +336,80 @@ export default function AdminDashboardPage() {
       </section>
 
       {/* Trend charts */}
-      <section style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      <section
+        style={{
+          marginTop: 14,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            border: "1px solid #334155",
+            borderRadius: 12,
+            padding: 12,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+            }}
+          >
             <b style={{ color: "#fff" }}>New users trend</b>
             <span style={{ color: "#94a3b8", fontSize: 12 }}>
               {updatedAt ? `Updated: ${updatedAt}` : ""}
             </span>
           </div>
           <div style={{ marginTop: 10, color: "#e5e7eb" }}>
-            {loading ? <span style={{ color: "#94a3b8" }}>Loading…</span> : <Sparkline values={newUsersSeries} />}
+            {loading ? (
+              <span style={{ color: "#94a3b8" }}>Loading…</span>
+            ) : (
+              <Sparkline values={newUsersSeries} />
+            )}
           </div>
         </div>
 
-        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <div
+          style={{
+            border: "1px solid #334155",
+            borderRadius: 12,
+            padding: 12,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+            }}
+          >
             <b style={{ color: "#fff" }}>Activity events trend</b>
             <span style={{ color: "#94a3b8", fontSize: 12 }}>
-              Includes logged actions (needs, interests, requests, messages, etc.)
+              Includes logged actions (needs, interests, requests, messages,
+              etc.)
             </span>
           </div>
           <div style={{ marginTop: 10, color: "#e5e7eb" }}>
-            {loading ? <span style={{ color: "#94a3b8" }}>Loading…</span> : <Sparkline values={activitySeries} />}
+            {loading ? (
+              <span style={{ color: "#94a3b8" }}>Loading…</span>
+            ) : (
+              <Sparkline values={activitySeries} />
+            )}
           </div>
         </div>
       </section>
 
       {/* Top events by traction */}
-      <section style={{ marginTop: 14, border: "1px solid #334155", borderRadius: 12 }}>
+      <section
+        style={{
+          marginTop: 14,
+          border: "1px solid #334155",
+          borderRadius: 12,
+        }}
+      >
         <div style={{ padding: 12, borderBottom: "1px solid #334155" }}>
           <b style={{ color: "#fff" }}>Top events by traction</b>
           <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
@@ -303,19 +431,32 @@ export default function AdminDashboardPage() {
             </thead>
             <tbody>
               {traction.map((r, idx) => (
-                <tr key={`${r.event_name}-${idx}`} style={{ borderTop: "1px solid #334155" }}>
+                <tr
+                  key={`${r.event_name}-${idx}`}
+                  style={{ borderTop: "1px solid #334155" }}
+                >
                   <td style={{ padding: "10px 12px" }}>
                     <Link
-                      href={`/admin/events/${encodeURIComponent(r.event_name)}` as any}
+                      href={
+                        (`/admin/events/${encodeURIComponent(
+                          r.event_name
+                        )}` as any)
+                      }
                       style={{ color: "#fff", textDecoration: "underline" }}
                     >
                       {r.event_name}
                     </Link>
                   </td>
                   <td style={{ padding: "10px 12px" }}>{toNum(r.coach_needs)}</td>
-                  <td style={{ padding: "10px 12px" }}>{toNum(r.unique_coaches)}</td>
-                  <td style={{ padding: "10px 12px" }}>{toNum(r.athlete_interest)}</td>
-                  <td style={{ padding: "10px 12px" }}>{toNum(r.unique_athletes)}</td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {toNum(r.unique_coaches)}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {toNum(r.athlete_interest)}
+                  </td>
+                  <td style={{ padding: "10px 12px" }}>
+                    {toNum(r.unique_athletes)}
+                  </td>
                   <td style={{ padding: "10px 12px" }}>{toNum(r.supply_gap)}</td>
                 </tr>
               ))}
@@ -332,9 +473,22 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* Recent activity feed (optional, but keeps layout consistent) */}
-      <section style={{ marginTop: 14, border: "1px solid #334155", borderRadius: 12 }}>
-        <div style={{ padding: 12, borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between" }}>
+      {/* Recent activity feed */}
+      <section
+        style={{
+          marginTop: 14,
+          border: "1px solid #334155",
+          borderRadius: 12,
+        }}
+      >
+        <div
+          style={{
+            padding: 12,
+            borderBottom: "1px solid #334155",
+            display: "flex",
+            justifyContent: "space-between",
+          }}
+        >
           <b style={{ color: "#fff" }}>Recent activity feed</b>
           <span style={{ color: "#94a3b8", fontSize: 12 }}>
             Showing {Math.min(10, feed.length)} latest actions
@@ -346,14 +500,30 @@ export default function AdminDashboardPage() {
             <div style={{ color: "#94a3b8" }}>No activity yet.</div>
           ) : (
             feed.slice(0, 10).map((f, i) => (
-              <div key={`${f.id}-${i}`} style={{ padding: "10px 0", borderTop: i === 0 ? "none" : "1px solid #334155" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div
+                key={`${f.id}-${i}`}
+                style={{
+                  padding: "10px 0",
+                  borderTop: i === 0 ? "none" : "1px solid #334155",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 10,
+                  }}
+                >
                   <div style={{ color: "#fff", fontWeight: 700 }}>{f.type}</div>
                   <div style={{ color: "#94a3b8", fontSize: 12 }}>
                     {f.created_at ? new Date(f.created_at).toLocaleString() : ""}
                   </div>
                 </div>
-                {f.message ? <div style={{ marginTop: 6, color: "#cbd5e1" }}>{f.message}</div> : null}
+                {f.message ? (
+                  <div style={{ marginTop: 6, color: "#cbd5e1" }}>
+                    {f.message}
+                  </div>
+                ) : null}
               </div>
             ))
           )}
