@@ -26,6 +26,9 @@ export type AdminCoachRow = {
   logopath: string | null;
   city: string | null;
   state: string | null;
+
+  // ✅ NEW
+  needs_count: number;
 };
 
 export async function GET(req: NextRequest) {
@@ -48,9 +51,8 @@ export async function GET(req: NextRequest) {
       whereState = ` AND COALESCE(t.state,'') = $${params.length}`;
     }
 
-    // NOTE: Your teams columns are:
-    // teamname, coach_name, contactemail, userid, logopath, city, state
-    // (teamid exists too, but your screenshot didn't show it in the columns list—your query results did.)
+    // NOTE: teams columns:
+    // teamid, teamname, coach_name, contactemail, userid, logopath, city, state
     const q = `
       SELECT
         u.id,
@@ -59,18 +61,31 @@ export async function GET(req: NextRequest) {
         u.email,
         u.phone,
         u.created_at,
+
         t.teamid,
         t.teamname,
         t.coach_name,
         t.contactemail,
         t.logopath,
         t.city,
-        t.state
+        t.state,
+
+        COALESCE(n.needs_count, 0)::int AS needs_count
+
       FROM public.users u
       JOIN public.teams t
         ON t.userid = u.id
+
+      LEFT JOIN (
+        SELECT coach_user_id, COUNT(*) AS needs_count
+        FROM public.coach_needs
+        GROUP BY coach_user_id
+      ) n
+        ON n.coach_user_id = u.id
+
       WHERE u.role = 'Coach'
       ${whereState}
+
       ORDER BY
         COALESCE(t.state, '') ASC,
         COALESCE(t.teamname, '') ASC,
@@ -81,6 +96,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ ok: true, coaches: r.rows });
   } catch (err: any) {
-    return jsonError("Failed to load coaches", 500, String(err?.message || err));
+    return jsonError("Failed to load coaches", 500, {
+      message: String(err?.message || err),
+    });
   }
 }

@@ -20,6 +20,9 @@ type CoachRow = {
   logopath: string | null;
   city: string | null;
   state: string | null;
+
+  // ✅ NEW (from API)
+  needs_count: number;
 };
 
 function safeStr(v: any) {
@@ -49,6 +52,7 @@ function exportCsv(rows: CoachRow[]) {
     "logopath",
     "city",
     "state",
+    "needs_count", // ✅ NEW
   ];
 
   const lines = [
@@ -194,6 +198,7 @@ export default function AdminCoachesDbPage() {
       const phone = (r.phone || "").toLowerCase();
       const city = (r.city || "").toLowerCase();
       const state = (r.state || "").toLowerCase();
+      const needs = String(r.needs_count ?? 0).toLowerCase(); // ✅ NEW
 
       return (
         team.includes(q) ||
@@ -203,7 +208,8 @@ export default function AdminCoachesDbPage() {
         contactemail.includes(q) ||
         phone.includes(q) ||
         city.includes(q) ||
-        state.includes(q)
+        state.includes(q) ||
+        needs.includes(q)
       );
     });
   }, [rows, search]);
@@ -248,7 +254,6 @@ export default function AdminCoachesDbPage() {
         throw new Error(data?.message || "Failed to save");
       }
 
-      // Update local rows for any row that has this teamid
       const updated = data.team as {
         teamid: number;
         teamname: string | null;
@@ -408,6 +413,7 @@ export default function AdminCoachesDbPage() {
                     <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">City</th>
                     <th className="px-4 py-3">State</th>
+                    <th className="px-4 py-3">Needs</th> {/* ✅ NEW */}
                     <th className="px-4 py-3">User</th>
                     <th className="px-4 py-3">Created</th>
                     <th className="px-4 py-3">Edit</th>
@@ -432,6 +438,14 @@ export default function AdminCoachesDbPage() {
                       <td className="px-4 py-3">{r.phone || "—"}</td>
                       <td className="px-4 py-3">{r.city || "—"}</td>
                       <td className="px-4 py-3">{r.state || "—"}</td>
+
+                      {/* ✅ Needs count */}
+                      <td className="px-4 py-3">
+                        <span className="inline-flex min-w-[28px] items-center justify-center rounded-full border border-slate-700 bg-slate-900/60 px-2 py-1 text-xs font-semibold">
+                          {Number.isFinite(r.needs_count) ? r.needs_count : 0}
+                        </span>
+                      </td>
+
                       <td className="px-4 py-3">
                         {userDisplay(r)}
                         <div className="text-xs text-slate-400">
