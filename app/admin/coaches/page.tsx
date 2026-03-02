@@ -1,33 +1,26 @@
-// app/admin/athletes/page.tsx
+// app/admin/coaches/page.tsx
 "use client";
 
 import Link from "next/link";
-import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
-type AthleteRow = {
-  id: number;
-  first_name: string | null;
-  last_name: string | null;
+type CoachRow = {
+  id: number; // user id
+  firstname: string | null;
+  lastname: string | null;
+  email: string | null;
+  phone: string | null;
+  created_at: string | null;
+
+  teamid: number | null;
+  teamname: string | null;
+  coach_name: string | null;
+  contactemail: string | null;
+  logopath: string | null;
   city: string | null;
   state: string | null;
-  dob: string | null;
-  parent_user_id: number | null;
-
-  parent_firstname?: string | null;
-  parent_lastname?: string | null;
-  parent_email?: string | null;
-  parent_phone?: string | null;
-
-  created_at?: string | null;
 };
-
-function pickArray<T>(obj: any, keys: string[]): T[] {
-  for (const k of keys) {
-    if (Array.isArray(obj?.[k])) return obj[k] as T[];
-  }
-  return [];
-}
 
 function safeStr(v: any) {
   return v === null || v === undefined ? "" : String(v);
@@ -41,25 +34,28 @@ function escapeCsv(v: any) {
   return s;
 }
 
-function exportCsv(rows: AthleteRow[]) {
+function exportCsv(rows: CoachRow[]) {
   const headers = [
     "id",
-    "first_name",
-    "last_name",
+    "firstname",
+    "lastname",
+    "email",
+    "phone",
+    "created_at",
+    "teamid",
+    "teamname",
+    "coach_name",
+    "contactemail",
+    "logopath",
     "city",
     "state",
-    "dob",
-    "parent_user_id",
-    "parent_firstname",
-    "parent_lastname",
-    "parent_email",
-    "parent_phone",
-    "created_at",
   ];
 
   const lines = [
     headers.join(","),
-    ...rows.map((r) => headers.map((h) => escapeCsv((r as any)[h])).join(",")),
+    ...rows.map((r) =>
+      headers.map((h) => escapeCsv((r as any)[h])).join(",")
+    ),
   ];
 
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
@@ -67,7 +63,7 @@ function exportCsv(rows: AthleteRow[]) {
 
   const a = document.createElement("a");
   a.href = url;
-  a.download = `athletes_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `coaches_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -75,38 +71,65 @@ function exportCsv(rows: AthleteRow[]) {
   URL.revokeObjectURL(url);
 }
 
-function fmtName(first?: string | null, last?: string | null) {
-  const fn = (first || "").trim();
-  const ln = (last || "").trim();
-  return `${fn} ${ln}`.trim() || "(no name)";
+function fmtCoachName(r: CoachRow) {
+  const n = (r.coach_name || "").trim();
+  if (n) return n;
+
+  const fn = (r.firstname || "").trim();
+  const ln = (r.lastname || "").trim();
+  const full = `${fn} ${ln}`.trim();
+  return full || "(no name)";
 }
 
-function fmtDob(dob: string | null) {
-  if (!dob) return "—";
-  return String(dob).slice(0, 10);
+/**
+ * User display priority:
+ * 1) users.firstname+lastname
+ * 2) teams.coach_name
+ * 3) users.email
+ * 4) teams.contactemail
+ */
+function userDisplay(r: CoachRow) {
+  const fn = (r.firstname || "").trim();
+  const ln = (r.lastname || "").trim();
+  const full = `${fn} ${ln}`.trim();
+  if (full) return full;
+
+  const coach = (r.coach_name || "").trim();
+  if (coach) return coach;
+
+  const email = (r.email || "").trim();
+  if (email) return email;
+
+  const cEmail = (r.contactemail || "").trim();
+  if (cEmail) return cEmail;
+
+  return "(unknown)";
 }
 
-type EditAthleteForm = {
-  id: number;
-  first_name: string;
-  last_name: string;
+type EditTeamForm = {
+  teamid: number;
+  teamname: string;
+  coach_name: string;
+  contactemail: string;
   city: string;
   state: string;
-  dob: string;
 };
 
-export default function AdminAthletesDbPage() {
-  const [rows, setRows] = useState<AthleteRow[]>([]);
+export default function AdminCoachesDbPage() {
+  const router = useRouter();
+
+  const [rows, setRows] = useState<CoachRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   const [stateFilter, setStateFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
 
+  // Edit modal state
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editErr, setEditErr] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<EditAthleteForm | null>(null);
+  const [editForm, setEditForm] = useState<EditTeamForm | null>(null);
 
   async function load() {
     setLoading(true);
@@ -118,21 +141,14 @@ export default function AdminAthletesDbPage() {
           ? `?state=${encodeURIComponent(stateFilter)}`
           : "";
 
-      const res = await fetch(`/api/admin/athletes${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/coaches${qs}`, { cache: "no-store" });
       const data = await res.json();
 
       if (!res.ok || !data?.ok) {
-        throw new Error(data?.message || "Failed to load athletes");
+        throw new Error(data?.message || "Failed to load coaches");
       }
 
-      // Normalize payload keys (athletes/rows/data/items)
-      const list = pickArray<AthleteRow>(data, [
-        "athletes",
-        "rows",
-        "data",
-        "items",
-      ]);
-      setRows(list);
+      setRows(data.coaches || []);
     } catch (e: any) {
       setErr(String(e?.message || e));
     } finally {
@@ -145,7 +161,6 @@ export default function AdminAthletesDbPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateFilter]);
 
-  // Distinct states (for dropdown options)
   const states = useMemo(() => {
     const s = new Set<string>();
     for (const r of rows) {
@@ -155,41 +170,55 @@ export default function AdminAthletesDbPage() {
     return Array.from(s).sort();
   }, [rows]);
 
+  const buckets = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      const st = (r.state || "").trim() || "Unknown";
+      map.set(st, (map.get(st) || 0) + 1);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([state, count]) => ({ state, count }));
+  }, [rows]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
 
     return rows.filter((r) => {
-      const name = fmtName(r.first_name, r.last_name).toLowerCase();
+      const team = (r.teamname || "").toLowerCase();
+      const coach = fmtCoachName(r).toLowerCase();
+      const user = userDisplay(r).toLowerCase();
+      const email = (r.email || "").toLowerCase();
+      const contactemail = (r.contactemail || "").toLowerCase();
+      const phone = (r.phone || "").toLowerCase();
       const city = (r.city || "").toLowerCase();
       const state = (r.state || "").toLowerCase();
-      const dob = (r.dob || "").toLowerCase();
-
-      const pName = fmtName(r.parent_firstname || "", r.parent_lastname || "").toLowerCase();
-      const pEmail = (r.parent_email || "").toLowerCase();
-      const pPhone = (r.parent_phone || "").toLowerCase();
 
       return (
-        name.includes(q) ||
+        team.includes(q) ||
+        coach.includes(q) ||
+        user.includes(q) ||
+        email.includes(q) ||
+        contactemail.includes(q) ||
+        phone.includes(q) ||
         city.includes(q) ||
-        state.includes(q) ||
-        dob.includes(q) ||
-        pName.includes(q) ||
-        pEmail.includes(q) ||
-        pPhone.includes(q)
+        state.includes(q)
       );
     });
   }, [rows, search]);
 
-  function openEdit(r: AthleteRow) {
+  function openEdit(r: CoachRow) {
+    if (!r.teamid) return;
+
     setEditErr(null);
     setEditForm({
-      id: r.id,
-      first_name: r.first_name || "",
-      last_name: r.last_name || "",
+      teamid: r.teamid,
+      teamname: r.teamname || "",
+      coach_name: r.coach_name || "",
+      contactemail: r.contactemail || "",
       city: r.city || "",
-      state: (r.state || "").toUpperCase(),
-      dob: r.dob ? String(r.dob).slice(0, 10) : "",
+      state: r.state || "",
     });
     setEditOpen(true);
   }
@@ -201,35 +230,46 @@ export default function AdminAthletesDbPage() {
     setEditErr(null);
 
     try {
-      const res = await fetch(`/api/admin/athletes/${editForm.id}`, {
+      const res = await fetch(`/api/admin/teams/${editForm.teamid}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
-          first_name: editForm.first_name,
-          last_name: editForm.last_name,
+          teamname: editForm.teamname,
+          coach_name: editForm.coach_name,
+          contactemail: editForm.contactemail,
           city: editForm.city,
           state: editForm.state,
-          dob: editForm.dob || null,
         }),
       });
 
       const data = await res.json();
-      if (!res.ok || !data?.ok) throw new Error(data?.message || "Failed to save");
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.message || "Failed to save");
+      }
 
-      const updated = data.athlete as AthleteRow;
+      // Update local rows for any row that has this teamid
+      const updated = data.team as {
+        teamid: number;
+        teamname: string | null;
+        coach_name: string | null;
+        contactemail: string | null;
+        city: string | null;
+        state: string | null;
+        logopath: string | null;
+      };
 
-      // Update row locally (no refresh)
       setRows((prev) =>
         prev.map((r) =>
-          r.id === updated.id
+          r.teamid === updated.teamid
             ? {
                 ...r,
-                first_name: updated.first_name,
-                last_name: updated.last_name,
-                city: updated.city,
-                state: updated.state,
-                dob: updated.dob,
+                teamname: updated.teamname ?? r.teamname,
+                coach_name: updated.coach_name ?? r.coach_name,
+                contactemail: updated.contactemail ?? r.contactemail,
+                city: updated.city ?? r.city,
+                state: updated.state ?? r.state,
+                logopath: updated.logopath ?? r.logopath,
               }
             : r
         )
@@ -251,25 +291,26 @@ export default function AdminAthletesDbPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight">
-              Athletes Database
+              Coaches Database
             </h1>
             <p className="mt-1 text-sm text-slate-300">
-              Admin directory for athletes. Filter by state, search, export, and edit.
+              Admin directory for coaches/teams. Filter by state, search, export,
+              and edit city/state.
             </p>
 
             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-              <Link
-                href={"/admin" as Route}
+              <button
+                onClick={() => router.push("/admin")}
                 className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 hover:bg-slate-900"
               >
                 ← Back to Admin
-              </Link>
+              </button>
 
               <Link
-                href={"/admin/coaches" as Route}
+                href="/admin/athletes"
                 className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 hover:bg-slate-900"
               >
-                Coaches DB
+                Athletes DB
               </Link>
             </div>
           </div>
@@ -293,8 +334,8 @@ export default function AdminAthletesDbPage() {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search athlete, parent, city, state, DOB…"
-                className="w-[340px] max-w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-400"
+                placeholder="Search team, coach, email, city, state…"
+                className="w-[320px] max-w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-400"
               />
 
               <button
@@ -306,36 +347,45 @@ export default function AdminAthletesDbPage() {
             </div>
 
             <div className="text-xs text-slate-400">
-              Showing <span className="text-slate-200">{filtered.length}</span> of{" "}
-              <span className="text-slate-200">{rows.length}</span>
+              Showing <span className="text-slate-200">{filtered.length}</span>{" "}
+              of <span className="text-slate-200">{rows.length}</span>
             </div>
           </div>
         </div>
 
-        {/* ✅ State summary row (replaces tile grid) */}
+        {/* Buckets */}
         <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-slate-200">State summary</h2>
-
-            <div className="text-xs text-slate-400">
-              {loading ? (
-                <>Loading…</>
-              ) : stateFilter === "ALL" ? (
-                <>
-                  Showing <span className="text-slate-200">{rows.length}</span> total athletes across{" "}
-                  <span className="text-slate-200">{states.length}</span> states
-                </>
-              ) : (
-                <>
-                  Filter: <span className="text-slate-200">{stateFilter}</span> •{" "}
-                  <span className="text-slate-200">{rows.length}</span> athletes
-                </>
-              )}
-            </div>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-200">
+              Coaches by State
+            </h2>
+            <span className="text-xs text-slate-400">(bucketed from results)</span>
           </div>
+
+          {loading ? (
+            <div className="mt-4 text-sm text-slate-300">Loading…</div>
+          ) : buckets.length === 0 ? (
+            <div className="mt-4 text-sm text-slate-300">No coaches found.</div>
+          ) : (
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              {buckets.slice(0, 24).map((b) => (
+                <button
+                  key={b.state}
+                  onClick={() =>
+                    setStateFilter(b.state === "Unknown" ? "ALL" : b.state)
+                  }
+                  className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-3 text-left hover:bg-slate-900"
+                  title="Click to filter"
+                >
+                  <div className="text-xs text-slate-400">{b.state}</div>
+                  <div className="text-lg font-bold">{b.count}</div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Directory table */}
+        {/* Table */}
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/40">
           <div className="border-b border-slate-800 px-4 py-3">
             <h2 className="text-sm font-semibold text-slate-200">Directory</h2>
@@ -346,51 +396,58 @@ export default function AdminAthletesDbPage() {
           ) : loading ? (
             <div className="p-4 text-sm text-slate-300">Loading…</div>
           ) : filtered.length === 0 ? (
-            <div className="p-4 text-sm text-slate-300">No athletes found.</div>
+            <div className="p-4 text-sm text-slate-300">No coaches found.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-900/60 text-slate-200">
                   <tr className="text-left">
-                    <th className="px-4 py-3">Athlete</th>
+                    <th className="px-4 py-3">Team</th>
+                    <th className="px-4 py-3">Coach</th>
+                    <th className="px-4 py-3">Contact Email</th>
+                    <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">City</th>
                     <th className="px-4 py-3">State</th>
-                    <th className="px-4 py-3">DOB</th>
-                    <th className="px-4 py-3">Parent</th>
-                    <th className="px-4 py-3">Parent Email</th>
-                    <th className="px-4 py-3">Parent Phone</th>
+                    <th className="px-4 py-3">User</th>
                     <th className="px-4 py-3">Created</th>
                     <th className="px-4 py-3">Edit</th>
                   </tr>
                 </thead>
-
                 <tbody className="divide-y divide-slate-800">
                   {filtered.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-900/30">
+                    <tr
+                      key={`${r.id}-${r.teamid ?? "x"}`}
+                      className="hover:bg-slate-900/30"
+                    >
                       <td className="px-4 py-3 font-medium">
-                        {fmtName(r.first_name, r.last_name)}
+                        {r.teamname || "—"}
                         <div className="text-xs text-slate-400">
-                          AthleteID: {r.id}
+                          TeamID: {r.teamid ?? "—"}
                         </div>
                       </td>
+                      <td className="px-4 py-3">{fmtCoachName(r)}</td>
+                      <td className="px-4 py-3">
+                        {r.contactemail || r.email || "—"}
+                      </td>
+                      <td className="px-4 py-3">{r.phone || "—"}</td>
                       <td className="px-4 py-3">{r.city || "—"}</td>
                       <td className="px-4 py-3">{r.state || "—"}</td>
-                      <td className="px-4 py-3">{fmtDob(r.dob)}</td>
                       <td className="px-4 py-3">
-                        {fmtName(r.parent_firstname || "", r.parent_lastname || "")}
+                        {userDisplay(r)}
                         <div className="text-xs text-slate-400">
-                          ParentUserID: {r.parent_user_id ?? "—"}
+                          UserID: {r.id}
                         </div>
                       </td>
-                      <td className="px-4 py-3">{r.parent_email || "—"}</td>
-                      <td className="px-4 py-3">{r.parent_phone || "—"}</td>
                       <td className="px-4 py-3 text-xs text-slate-300">
-                        {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
+                        {r.created_at
+                          ? new Date(r.created_at).toLocaleString()
+                          : "—"}
                       </td>
                       <td className="px-4 py-3">
                         <button
+                          disabled={!r.teamid}
                           onClick={() => openEdit(r)}
-                          className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs font-semibold hover:bg-slate-900"
+                          className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs font-semibold hover:bg-slate-900 disabled:opacity-50"
                         >
                           Edit
                         </button>
@@ -409,12 +466,11 @@ export default function AdminAthletesDbPage() {
             <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-950 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="text-lg font-extrabold">Edit Athlete</div>
+                  <div className="text-lg font-extrabold">Edit Team</div>
                   <div className="mt-1 text-xs text-slate-400">
-                    AthleteID: {editForm.id}
+                    TeamID: {editForm.teamid}
                   </div>
                 </div>
-
                 <button
                   onClick={() => {
                     setEditOpen(false);
@@ -434,29 +490,41 @@ export default function AdminAthletesDbPage() {
               )}
 
               <div className="mt-4 grid grid-cols-1 gap-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-xs text-slate-300">
-                    First Name
-                    <input
-                      value={editForm.first_name}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, first_name: e.target.value })
-                      }
-                      className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
-                    />
-                  </label>
+                <label className="text-xs text-slate-300">
+                  Team Name
+                  <input
+                    value={editForm.teamname}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, teamname: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
+                  />
+                </label>
 
-                  <label className="text-xs text-slate-300">
-                    Last Name
-                    <input
-                      value={editForm.last_name}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, last_name: e.target.value })
-                      }
-                      className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
-                    />
-                  </label>
-                </div>
+                <label className="text-xs text-slate-300">
+                  Coach Name
+                  <input
+                    value={editForm.coach_name}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, coach_name: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
+                  />
+                </label>
+
+                <label className="text-xs text-slate-300">
+                  Contact Email
+                  <input
+                    value={editForm.contactemail}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        contactemail: e.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
+                  />
+                </label>
 
                 <div className="grid grid-cols-2 gap-3">
                   <label className="text-xs text-slate-300">
@@ -475,28 +543,13 @@ export default function AdminAthletesDbPage() {
                     <input
                       value={editForm.state}
                       onChange={(e) =>
-                        setEditForm({
-                          ...editForm,
-                          state: e.target.value.toUpperCase(),
-                        })
+                        setEditForm({ ...editForm, state: e.target.value })
                       }
                       placeholder="e.g. MI"
                       className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
                     />
                   </label>
                 </div>
-
-                <label className="text-xs text-slate-300">
-                  DOB (YYYY-MM-DD)
-                  <input
-                    value={editForm.dob}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, dob: e.target.value })
-                    }
-                    placeholder="2014-06-21"
-                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
-                  />
-                </label>
               </div>
 
               <div className="mt-5 flex items-center justify-end gap-2">

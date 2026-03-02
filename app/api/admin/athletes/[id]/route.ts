@@ -1,3 +1,4 @@
+// app/api/admin/athletes/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
@@ -7,6 +8,9 @@ function jsonError(message: string, status = 500, details?: unknown) {
   return NextResponse.json({ ok: false, message, details }, { status });
 }
 
+/* -------------------------------------------
+   GET: Full admin athlete profile (existing)
+-------------------------------------------- */
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -47,7 +51,7 @@ export async function GET(
 
     const profile = profileRes.rows[0] ?? null;
 
-    // Interests (your table columns per screenshots)
+    // Interests
     const interestsRes = await client.query(
       `
       SELECT
@@ -65,8 +69,7 @@ export async function GET(
       [athleteId]
     );
 
-    // Matches: keep safe. (If your schema differs, we can adjust after.)
-    // We'll try common columns; if you don't have matches yet, it won't matter.
+    // Matches (best-effort; schema may vary)
     let matches: any[] = [];
     try {
       const matchesRes = await client.query(
@@ -91,7 +94,6 @@ export async function GET(
       );
       matches = matchesRes.rows ?? [];
     } catch {
-      // If matches table/columns differ in your DB right now, ignore for now
       matches = [];
     }
 
@@ -104,6 +106,92 @@ export async function GET(
     });
   } catch (e: any) {
     return jsonError("Failed to load athlete admin profile", 500, {
+      athleteId,
+      pg: { message: e?.message, code: e?.code },
+    });
+  } finally {
+    client.release();
+  }
+}
+
+/* -------------------------------------------
+   PATCH: Update editable athlete fields
+   (first_name, last_name, city, state, dob)
+-------------------------------------------- */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const athleteId = Number(params.id);
+
+  if (!Number.isFinite(athleteId) || athleteId <= 0) {
+    return jsonError("Invalid athlete id", 400, { athleteId });
+  }
+
+  let body: any = null;
+  try {
+    body = await req.json();
+  } catch {
+    return jsonError("Invalid JSON body", 400);
+  }
+
+  // Normalize empty strings -> NULL
+  const normStr = (v: any) => {
+    if (v === null || v === undefined) return null;
+    if (typeof v !== "string") return v;
+    const t = v.trim();
+    return t === "" ? null : t;
+  };
+
+  // DOB should be sent as "YYYY-MM-DD" (or null)
+  const normDob = (v: any) => {
+    const s = normStr(v);
+    if (!s) return null;
+    return s;
+  };
+
+  // Allowed public.athletes columns
+  const allowed = ["first_name", "last_name", "city", "state", "dob"] as const;
+
+  const updates: Record<string, any> = {};
+  for (const k of allowed) {
+    if (Object.prototype.hasOwnProperty.call(body, k)) {
+      if (k === "dob") updates[k] = normDob(body[k]);
+      else updates[k] = normStr(body[k]);
+    }
+  }
+
+  // Normalize state to uppercase if provided
+  if (Object.prototype.hasOwnProperty.call(updates, "state") && updates.state) {
+    updates.state = String(updates.state).trim().toUpperCase();
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return jsonError("No valid fields to update", 400);
+  }
+
+  const keys = Object.keys(updates);
+  const setSql = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+  const values = keys.map((k) => updates[k]);
+
+  const client = await pool.connect();
+  try {
+    const q = `
+      UPDATE public.athletes
+      SET ${setSql}
+      WHERE id = $${keys.length + 1}
+      RETURNING id, first_name, last_name, city, state, dob, parent_user_id;
+    `;
+
+    const r = await client.query(q, [...values, athleteId]);
+
+    if (r.rowCount === 0) {
+      return jsonError("Athlete not found", 404);
+    }
+
+    return NextResponse.json({ ok: true, athlete: r.rows[0] });
+  } catch (e: any) {
+    return jsonError("Failed to update athlete", 500, {
       athleteId,
       pg: { message: e?.message, code: e?.code },
     });

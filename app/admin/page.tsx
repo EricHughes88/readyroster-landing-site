@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next"; // ✅ typedRoutes fix
 import { useEffect, useMemo, useState } from "react";
 
 type OverviewResponse = {
@@ -157,7 +158,6 @@ export default function AdminDashboardPage() {
 
         setOverview(ov);
 
-        // Your traction endpoint returns the same list under multiple keys — normalize it.
         const rows = pickArray<TractionRow>(tr, [
           "rows",
           "data",
@@ -196,6 +196,24 @@ export default function AdminDashboardPage() {
     [overview]
   );
 
+  // Shared “button” style (prevents “invisible” / tiny links)
+  const navBtn: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    border: "1px solid #334155",
+    background: "#0b1220",
+    color: "#fff",
+    padding: "8px 12px",
+    borderRadius: 10,
+    textDecoration: "none",
+    fontWeight: 800,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    minHeight: 36,
+  };
+
   return (
     <main
       style={{
@@ -225,35 +243,29 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* ✅ RIGHT SIDE ACTIONS */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
           {/* ✅ Directory buttons */}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <Link
-              href={"/admin/athletes" as any}
-              style={{
-                border: "1px solid #334155",
-                background: "#0b1220",
-                color: "#fff",
-                padding: "8px 12px",
-                borderRadius: 10,
-                textDecoration: "none",
-                fontWeight: 700,
-              }}
+              href={"/admin/athletes" as Route}
+              prefetch={false}
+              style={navBtn}
             >
               Athletes DB
             </Link>
 
             <Link
-              href={"/admin/coaches" as any}
-              style={{
-                border: "1px solid #334155",
-                background: "#0b1220",
-                color: "#fff",
-                padding: "8px 12px",
-                borderRadius: 10,
-                textDecoration: "none",
-                fontWeight: 700,
-              }}
+              href={"/admin/coaches" as Route}
+              prefetch={false}
+              style={navBtn}
             >
               Coaches DB
             </Link>
@@ -271,6 +283,7 @@ export default function AdminDashboardPage() {
               padding: "8px 10px",
               borderRadius: 10,
               cursor: "pointer",
+              minHeight: 36,
             }}
           >
             <option value={7}>7 days</option>
@@ -388,8 +401,7 @@ export default function AdminDashboardPage() {
           >
             <b style={{ color: "#fff" }}>Activity events trend</b>
             <span style={{ color: "#94a3b8", fontSize: 12 }}>
-              Includes logged actions (needs, interests, requests, messages,
-              etc.)
+              Includes logged actions (needs, interests, requests, messages, etc.)
             </span>
           </div>
           <div style={{ marginTop: 10, color: "#e5e7eb" }}>
@@ -437,11 +449,7 @@ export default function AdminDashboardPage() {
                 >
                   <td style={{ padding: "10px 12px" }}>
                     <Link
-                      href={
-                        (`/admin/events/${encodeURIComponent(
-                          r.event_name
-                        )}` as any)
-                      }
+                      href={`/admin/events/${encodeURIComponent(r.event_name)}`}
                       style={{ color: "#fff", textDecoration: "underline" }}
                     >
                       {r.event_name}
