@@ -4,6 +4,7 @@ import type { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import pg from "pg";
+import { logAdminEvent } from "@/lib/adminAudit";
 
 type RRRole = "Coach" | "Parent" | "Athlete" | "Admin";
 
@@ -31,6 +32,21 @@ function normalizeRole(raw: unknown): RRRole {
   return "Parent";
 }
 
+function getIpFromHeaders(headers?: any): string | null {
+  const fwd = headers?.get?.("x-forwarded-for") ?? headers?.["x-forwarded-for"];
+  if (typeof fwd === "string" && fwd.trim()) {
+    return fwd.split(",")[0]?.trim() || null;
+  }
+  const real =
+    headers?.get?.("x-real-ip") ?? headers?.["x-real-ip"] ?? headers?.get?.("cf-connecting-ip");
+  return typeof real === "string" && real.trim() ? real.trim() : null;
+}
+
+function getUserAgentFromHeaders(headers?: any): string | null {
+  const ua = headers?.get?.("user-agent") ?? headers?.["user-agent"];
+  return typeof ua === "string" && ua.trim() ? ua : null;
+}
+
 // Main NextAuth options object
 export const authOptions: NextAuthOptions = {
   debug: process.env.AUTH_DEBUG === "true",
@@ -46,7 +62,9 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(creds): Promise<User | null> {
+
+      // NOTE: CredentialsProvider authorize supports (credentials, req)
+      async authorize(creds, req): Promise<User | null> {
         const email = String(creds?.email ?? "").trim().toLowerCase();
         const password = String(creds?.password ?? "");
         if (!email || !password) return null;
@@ -56,6 +74,9 @@ export const authOptions: NextAuthOptions = {
           console.error("[auth.authorize] DATABASE_URL not set");
           return null;
         }
+
+        const ip = getIpFromHeaders((req as any)?.headers);
+        const userAgent = getUserAgentFromHeaders((req as any)?.headers);
 
         try {
           const { rows } = await pool.query(
@@ -69,14 +90,49 @@ export const authOptions: NextAuthOptions = {
           );
 
           const u = rows?.[0];
-          if (!u?.password_hash) return null;
+          if (!u?.password_hash) {
+            // We cannot log unknown-user attempts into admin_audit_log because it requires admin_user_id.
+            return null;
+          }
+
+          const role = normalizeRole(u.role);
 
           const ok = await bcrypt.compare(password, String(u.password_hash));
-          if (!ok) return null;
+          if (!ok) {
+            // ✅ Optional: log failed attempt ONLY if this email belongs to an Admin user
+            if (role === "Admin") {
+              try {
+                await logAdminEvent({
+                  adminUserId: Number(u.id),
+                  action: "admin_login_failed_bad_password",
+                  metadata: { email },
+                  ip,
+                  userAgent,
+                });
+              } catch {
+                // ignore logging failure
+              }
+            }
+            return null;
+          }
 
           const built = [u.firstname, u.lastname].filter(Boolean).join(" ").trim();
           const niceName = u.name ?? (built || null);
-          const role = normalizeRole(u.role);
+
+          // ✅ Log successful admin login
+          if (role === "Admin") {
+            try {
+              await logAdminEvent({
+                adminUserId: Number(u.id),
+                action: "admin_login_success",
+                metadata: { email },
+                ip,
+                userAgent,
+              });
+            } catch {
+              // ignore logging failure
+            }
+          }
 
           const out: User & { role?: RRRole } = {
             id: String(u.id),

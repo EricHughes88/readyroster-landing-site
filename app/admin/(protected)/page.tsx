@@ -1,4 +1,3 @@
-// app/admin/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -57,6 +56,28 @@ type FeedResponse = {
   items?: FeedItem[];
 };
 
+// ✅ Admin audit log item shape from /api/admin/audit
+type AuditItem = {
+  id: number;
+  admin_user_id: number;
+  admin_email: string | null;
+  admin_firstname: string | null;
+  admin_lastname: string | null;
+  action: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  metadata: any;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+};
+
+type AuditResponse = {
+  ok: boolean;
+  items?: AuditItem[];
+  message?: string;
+};
+
 function clampDays(n: number) {
   if (!Number.isFinite(n)) return 30;
   return Math.max(1, Math.min(365, Math.floor(n)));
@@ -74,14 +95,13 @@ function pickArray<T>(obj: any, keys: string[]): T[] {
   return [];
 }
 
+function niceAdminName(a: AuditItem) {
+  const n = [a.admin_firstname, a.admin_lastname].filter(Boolean).join(" ").trim();
+  return n || a.admin_email || `Admin #${a.admin_user_id}`;
+}
+
 /** Tiny sparkline (SVG polyline) */
-function Sparkline({
-  values,
-  height = 44,
-}: {
-  values: number[];
-  height?: number;
-}) {
+function Sparkline({ values, height = 44 }: { values: number[]; height?: number }) {
   const width = 280;
   const pad = 6;
 
@@ -91,8 +111,7 @@ function Sparkline({
 
   const points = safe
     .map((v, i) => {
-      const x =
-        pad + (i * (width - pad * 2)) / Math.max(1, safe.length - 1);
+      const x = pad + (i * (width - pad * 2)) / Math.max(1, safe.length - 1);
       const t = max === min ? 0.5 : (v - min) / (max - min);
       const y = pad + (1 - t) * (height - pad * 2);
       return `${x},${y}`;
@@ -101,13 +120,7 @@ function Sparkline({
 
   return (
     <svg width={width} height={height} style={{ display: "block" }}>
-      <polyline
-        points={points}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        opacity={0.9}
-      />
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth="2" opacity={0.9} />
     </svg>
   );
 }
@@ -122,6 +135,9 @@ export default function AdminDashboardPage() {
   const [traction, setTraction] = useState<TractionRow[]>([]);
   const [feed, setFeed] = useState<FeedItem[]>([]);
 
+  // ✅ NEW: audit log feed
+  const [audit, setAudit] = useState<AuditItem[]>([]);
+
   // IMPORTANT: set this client-side only to avoid hydration mismatch
   const [updatedAt, setUpdatedAt] = useState<string>("");
 
@@ -135,39 +151,35 @@ export default function AdminDashboardPage() {
 
         const d = clampDays(days);
 
-        const [ovRes, trRes, fdRes] = await Promise.all([
+        const [ovRes, trRes, fdRes, auRes] = await Promise.all([
           fetch(`/api/admin/analytics/overview?days=${d}`, { cache: "no-store" }),
-          fetch(`/api/admin/analytics/event-traction?days=${d}&limit=50`, {
-            cache: "no-store",
-          }),
+          fetch(`/api/admin/analytics/event-traction?days=${d}&limit=50`, { cache: "no-store" }),
           fetch(`/api/admin/analytics/feed?limit=60`, { cache: "no-store" }),
+          // ✅ This endpoint logs the view server-side (view_admin_activity_feed)
+          fetch(`/api/admin/audit?limit=20`, { cache: "no-store" }),
         ]);
 
         const ov: OverviewResponse = await ovRes.json();
         const tr: TractionResponse = await trRes.json();
         const fd: FeedResponse = await fdRes.json();
+        const au: AuditResponse = await auRes.json();
 
-        if (!ovRes.ok || !ov?.ok)
-          throw new Error((ov as any)?.message || "Failed overview");
-        if (!trRes.ok || !tr?.ok)
-          throw new Error((tr as any)?.message || "Failed traction");
-        if (!fdRes.ok || !fd?.ok)
-          throw new Error((fd as any)?.message || "Failed feed");
+        if (!ovRes.ok || !ov?.ok) throw new Error((ov as any)?.message || "Failed overview");
+        if (!trRes.ok || !tr?.ok) throw new Error((tr as any)?.message || "Failed traction");
+        if (!fdRes.ok || !fd?.ok) throw new Error((fd as any)?.message || "Failed feed");
+        if (!auRes.ok || !au?.ok) throw new Error(au?.message || "Failed audit log");
 
         if (cancelled) return;
 
         setOverview(ov);
 
-        const rows = pickArray<TractionRow>(tr, [
-          "rows",
-          "data",
-          "events",
-          "traction",
-        ]);
+        const rows = pickArray<TractionRow>(tr, ["rows", "data", "events", "traction"]);
         setTraction(rows);
 
         const items = pickArray<FeedItem>(fd, ["rows", "feed", "data", "items"]);
         setFeed(items);
+
+        setAudit(Array.isArray(au.items) ? au.items : []);
 
         setUpdatedAt(new Date().toLocaleString());
       } catch (e: any) {
@@ -215,26 +227,10 @@ export default function AdminDashboardPage() {
   };
 
   return (
-    <main
-      style={{
-        padding: 20,
-        maxWidth: 1200,
-        margin: "0 auto",
-        color: "#e5e7eb",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-        }}
-      >
+    <main style={{ padding: 20, maxWidth: 1200, margin: "0 auto", color: "#e5e7eb" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <div>
-          <h1
-            style={{ fontSize: 34, fontWeight: 900, margin: 0, color: "#fff" }}
-          >
+          <h1 style={{ fontSize: 34, fontWeight: 900, margin: 0, color: "#fff" }}>
             Admin Dashboard
           </h1>
           <p style={{ marginTop: 6, color: "#94a3b8" }}>
@@ -243,31 +239,20 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* ✅ RIGHT SIDE ACTIONS */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-            justifyContent: "flex-end",
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {/* ✅ Directory buttons */}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <Link
-              href={"/admin/athletes" as Route}
-              prefetch={false}
-              style={navBtn}
-            >
+            <Link href={"/admin/athletes" as Route} prefetch={false} style={navBtn}>
               Athletes DB
             </Link>
 
-            <Link
-              href={"/admin/coaches" as Route}
-              prefetch={false}
-              style={navBtn}
-            >
+            <Link href={"/admin/coaches" as Route} prefetch={false} style={navBtn}>
               Coaches DB
+            </Link>
+
+            {/* ✅ NEW: Admin audit feed */}
+            <Link href={"/admin/activity" as Route} prefetch={false} style={navBtn}>
+              Admin Activity
             </Link>
           </div>
 
@@ -334,14 +319,7 @@ export default function AdminDashboardPage() {
             }}
           >
             <div style={{ color: "#94a3b8", fontSize: 12 }}>{label}</div>
-            <div
-              style={{
-                fontSize: 26,
-                fontWeight: 900,
-                color: "#fff",
-                marginTop: 6,
-              }}
-            >
+            <div style={{ fontSize: 26, fontWeight: 900, color: "#fff", marginTop: 6 }}>
               {loading ? "…" : value}
             </div>
           </div>
@@ -357,71 +335,33 @@ export default function AdminDashboardPage() {
           gap: 12,
         }}
       >
-        <div
-          style={{
-            border: "1px solid #334155",
-            borderRadius: 12,
-            padding: 12,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "baseline",
-            }}
-          >
+        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <b style={{ color: "#fff" }}>New users trend</b>
             <span style={{ color: "#94a3b8", fontSize: 12 }}>
               {updatedAt ? `Updated: ${updatedAt}` : ""}
             </span>
           </div>
           <div style={{ marginTop: 10, color: "#e5e7eb" }}>
-            {loading ? (
-              <span style={{ color: "#94a3b8" }}>Loading…</span>
-            ) : (
-              <Sparkline values={newUsersSeries} />
-            )}
+            {loading ? <span style={{ color: "#94a3b8" }}>Loading…</span> : <Sparkline values={newUsersSeries} />}
           </div>
         </div>
 
-        <div
-          style={{
-            border: "1px solid #334155",
-            borderRadius: 12,
-            padding: 12,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "baseline",
-            }}
-          >
+        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <b style={{ color: "#fff" }}>Activity events trend</b>
             <span style={{ color: "#94a3b8", fontSize: 12 }}>
               Includes logged actions (needs, interests, requests, messages, etc.)
             </span>
           </div>
           <div style={{ marginTop: 10, color: "#e5e7eb" }}>
-            {loading ? (
-              <span style={{ color: "#94a3b8" }}>Loading…</span>
-            ) : (
-              <Sparkline values={activitySeries} />
-            )}
+            {loading ? <span style={{ color: "#94a3b8" }}>Loading…</span> : <Sparkline values={activitySeries} />}
           </div>
         </div>
       </section>
 
       {/* Top events by traction */}
-      <section
-        style={{
-          marginTop: 14,
-          border: "1px solid #334155",
-          borderRadius: 12,
-        }}
-      >
+      <section style={{ marginTop: 14, border: "1px solid #334155", borderRadius: 12 }}>
         <div style={{ padding: 12, borderBottom: "1px solid #334155" }}>
           <b style={{ color: "#fff" }}>Top events by traction</b>
           <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
@@ -443,10 +383,7 @@ export default function AdminDashboardPage() {
             </thead>
             <tbody>
               {traction.map((r, idx) => (
-                <tr
-                  key={`${r.event_name}-${idx}`}
-                  style={{ borderTop: "1px solid #334155" }}
-                >
+                <tr key={`${r.event_name}-${idx}`} style={{ borderTop: "1px solid #334155" }}>
                   <td style={{ padding: "10px 12px" }}>
                     <Link
                       href={`/admin/events/${encodeURIComponent(r.event_name)}`}
@@ -456,15 +393,9 @@ export default function AdminDashboardPage() {
                     </Link>
                   </td>
                   <td style={{ padding: "10px 12px" }}>{toNum(r.coach_needs)}</td>
-                  <td style={{ padding: "10px 12px" }}>
-                    {toNum(r.unique_coaches)}
-                  </td>
-                  <td style={{ padding: "10px 12px" }}>
-                    {toNum(r.athlete_interest)}
-                  </td>
-                  <td style={{ padding: "10px 12px" }}>
-                    {toNum(r.unique_athletes)}
-                  </td>
+                  <td style={{ padding: "10px 12px" }}>{toNum(r.unique_coaches)}</td>
+                  <td style={{ padding: "10px 12px" }}>{toNum(r.athlete_interest)}</td>
+                  <td style={{ padding: "10px 12px" }}>{toNum(r.unique_athletes)}</td>
                   <td style={{ padding: "10px 12px" }}>{toNum(r.supply_gap)}</td>
                 </tr>
               ))}
@@ -482,13 +413,7 @@ export default function AdminDashboardPage() {
       </section>
 
       {/* Recent activity feed */}
-      <section
-        style={{
-          marginTop: 14,
-          border: "1px solid #334155",
-          borderRadius: 12,
-        }}
-      >
+      <section style={{ marginTop: 14, border: "1px solid #334155", borderRadius: 12 }}>
         <div
           style={{
             padding: 12,
@@ -515,22 +440,80 @@ export default function AdminDashboardPage() {
                   borderTop: i === 0 ? "none" : "1px solid #334155",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 10,
-                  }}
-                >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                   <div style={{ color: "#fff", fontWeight: 700 }}>{f.type}</div>
                   <div style={{ color: "#94a3b8", fontSize: 12 }}>
                     {f.created_at ? new Date(f.created_at).toLocaleString() : ""}
                   </div>
                 </div>
-                {f.message ? (
-                  <div style={{ marginTop: 6, color: "#cbd5e1" }}>
-                    {f.message}
+                {f.message ? <div style={{ marginTop: 6, color: "#cbd5e1" }}>{f.message}</div> : null}
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* ✅ NEW: Admin audit log preview */}
+      <section style={{ marginTop: 14, border: "1px solid #334155", borderRadius: 12 }}>
+        <div
+          style={{
+            padding: 12,
+            borderBottom: "1px solid #334155",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: 10,
+          }}
+        >
+          <b style={{ color: "#fff" }}>Admin audit log</b>
+          <Link href={"/admin/activity" as Route} style={{ color: "#fff", textDecoration: "underline", fontSize: 12 }}>
+            View all
+          </Link>
+        </div>
+
+        <div style={{ padding: 12 }}>
+          {!loading && audit.length === 0 ? (
+            <div style={{ color: "#94a3b8" }}>No admin audit activity yet.</div>
+          ) : (
+            audit.slice(0, 8).map((a) => (
+              <div
+                key={a.id}
+                style={{
+                  padding: "10px 0",
+                  borderTop: "1px solid #334155",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ color: "#fff", fontWeight: 700 }}>
+                    {niceAdminName(a)} — {a.action}
+                    {a.entity_type ? (
+                      <span style={{ color: "#94a3b8", fontWeight: 600 }}>
+                        {" "}
+                        • {a.entity_type}
+                        {a.entity_id ? ` #${a.entity_id}` : ""}
+                      </span>
+                    ) : null}
                   </div>
+                  <div style={{ color: "#94a3b8", fontSize: 12 }}>
+                    {a.created_at ? new Date(a.created_at).toLocaleString() : ""}
+                  </div>
+                </div>
+
+                {a.metadata ? (
+                  <pre
+                    style={{
+                      marginTop: 6,
+                      fontSize: 12,
+                      color: "#cbd5e1",
+                      background: "#0b1220",
+                      border: "1px solid #334155",
+                      borderRadius: 10,
+                      padding: 10,
+                      overflowX: "auto",
+                    }}
+                  >
+                    {JSON.stringify(a.metadata, null, 2)}
+                  </pre>
                 ) : null}
               </div>
             ))

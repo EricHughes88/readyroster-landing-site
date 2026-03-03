@@ -1,4 +1,4 @@
-// app/api/admin/coaches/route.ts
+// app/api/admin/coaches/export/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authConfig } from "@/auth.config";
@@ -25,63 +25,80 @@ function getPool(): pg.Pool {
 }
 
 function getIp(req: NextRequest): string | null {
-  // Vercel / proxies
   const fwd = req.headers.get("x-forwarded-for");
   if (fwd) return fwd.split(",")[0]?.trim() || null;
   return req.headers.get("x-real-ip") || null;
+}
+
+function safeStr(v: any) {
+  return v === null || v === undefined ? "" : String(v);
+}
+
+function escapeCsv(v: any) {
+  const s = safeStr(v);
+  if (s.includes('"') || s.includes(",") || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
 }
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authConfig);
 
   if (!session?.user) {
-    return NextResponse.json({ ok: false, message: "Not signed in" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, message: "Not signed in" },
+      { status: 401 }
+    );
   }
 
   const role = (session.user as any)?.role;
   if (role !== "Admin") {
-    // Optional: log denied attempts (comment out if you don’t want noise)
+    // optional: log denied attempt
     try {
-      const adminUserId = Number((session.user as any)?.id);
-      if (Number.isFinite(adminUserId)) {
+      const who = Number((session.user as any)?.id);
+      if (Number.isFinite(who)) {
         await logAdminEvent({
-          adminUserId,
-          action: "admin_access_denied_coaches",
-          metadata: { path: "/api/admin/coaches" },
+          adminUserId: who,
+          action: "admin_access_denied_export_coaches_csv",
+          metadata: { path: "/api/admin/coaches/export" },
           ip: getIp(req),
           userAgent: req.headers.get("user-agent"),
         });
       }
     } catch {
-      // ignore logging failures
+      // ignore
     }
 
-    return NextResponse.json({ ok: false, message: "Access denied" }, { status: 403 });
+    return NextResponse.json(
+      { ok: false, message: "Access denied" },
+      { status: 403 }
+    );
   }
 
   const adminUserId = Number((session.user as any)?.id);
   if (!Number.isFinite(adminUserId)) {
-    return NextResponse.json({ ok: false, message: "Invalid session user id" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, message: "Invalid session user id" },
+      { status: 400 }
+    );
   }
 
   const pool = getPool();
-
   const url = new URL(req.url);
+
+  // Optional filter: export only a state (e.g. ?state=NY)
   const state = (url.searchParams.get("state") || "").trim().toUpperCase() || null;
 
+  const params: any[] = [];
+  let where = `WHERE LOWER(u.role) = 'coach'`;
+
+  if (state) {
+    params.push(state);
+    where += ` AND UPPER(COALESCE(t.state, '')) = $${params.length}`;
+  }
+
   try {
-    // --- Fetch coaches + teams (left join) ---
-    // Assumptions based on your admin/coaches page fields:
-    // users: id, firstname, lastname, email, phone, created_at, role
-    // teams: teamid, teamname, coach_name, contactemail, logopath, city, state, userid (coach user id)
-    const params: any[] = [];
-    let where = `WHERE LOWER(u.role) = 'coach'`;
-
-    if (state) {
-      params.push(state);
-      where += ` AND UPPER(COALESCE(t.state, '')) = $${params.length}`;
-    }
-
     const q = `
       SELECT
         u.id,
@@ -103,15 +120,41 @@ export async function GET(req: NextRequest) {
         ON t.userid = u.id
       ${where}
       ORDER BY u.created_at DESC
-      LIMIT 500
+      LIMIT 5000
     `;
 
     const { rows } = await pool.query(q, params);
 
-    // ✅ Log the admin viewing coaches (this is Step 5 in action)
+    const headers = [
+      "id",
+      "firstname",
+      "lastname",
+      "email",
+      "phone",
+      "created_at",
+      "teamid",
+      "teamname",
+      "coach_name",
+      "contactemail",
+      "logopath",
+      "city",
+      "state",
+    ];
+
+    const lines: string[] = [];
+    lines.push(headers.join(","));
+    for (const r of rows) {
+      lines.push(
+        headers.map((h) => escapeCsv((r as any)[h])).join(",")
+      );
+    }
+
+    const csv = lines.join("\n");
+
+    // ✅ Log export action
     await logAdminEvent({
       adminUserId,
-      action: "view_admin_coaches",
+      action: "export_coaches_csv",
       entityType: "coach",
       metadata: {
         filters: { state },
@@ -121,13 +164,24 @@ export async function GET(req: NextRequest) {
       userAgent: req.headers.get("user-agent"),
     });
 
-    return NextResponse.json({ ok: true, rows });
+    const filename = state
+      ? `ready_roster_coaches_${state}_${new Date().toISOString().slice(0, 10)}.csv`
+      : `ready_roster_coaches_${new Date().toISOString().slice(0, 10)}.csv`;
+
+    return new NextResponse(csv, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
   } catch (err: any) {
-    // Optional: log failures too
+    // Optional: log export failure
     try {
       await logAdminEvent({
         adminUserId,
-        action: "view_admin_coaches_error",
+        action: "export_coaches_csv_error",
         entityType: "coach",
         metadata: {
           message: String(err?.message ?? err),
@@ -141,7 +195,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { ok: false, message: "Failed to load coaches", details: String(err?.message ?? err) },
+      { ok: false, message: "Failed to export coaches CSV", details: String(err?.message ?? err) },
       { status: 500 }
     );
   }

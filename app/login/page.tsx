@@ -1,4 +1,3 @@
-// app/login/page.tsx
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
@@ -96,7 +95,6 @@ export default function LoginPage() {
     setErr(null);
 
     startTransition(async () => {
-      // 1) Sign in (no auto redirect)
       const result = await signIn("credentials", {
         email,
         password,
@@ -104,11 +102,11 @@ export default function LoginPage() {
         callbackUrl: callbackUrl ?? "/parent",
       });
 
-      // 2) Handle errors
       if (!result) {
         setErr("Sign in did not return a response. Please try again.");
         return;
       }
+
       if (result.error) {
         const map: Record<string, string> = {
           CredentialsSignin: "Invalid email or password.",
@@ -121,14 +119,11 @@ export default function LoginPage() {
         return;
       }
 
-      // 3) Best practice: redirect immediately to NextAuth-provided URL
-      // This avoids “stuck on signing in…” when session propagation is slow.
       if (result.url) {
         window.location.href = result.url;
         return;
       }
 
-      // 4) Fallback if url missing: read session + route
       const u = await fetchSessionUser();
       if (!u) {
         window.location.href = callbackUrl ?? "/parent";
@@ -193,6 +188,11 @@ export default function LoginPage() {
           >
             {isPending ? "Signing in…" : "Log in"}
           </button>
+
+          {/* ✅ Admin Button (use <a> to avoid typedRoutes href typing issues) */}
+          <a href="/admin/login" className="rr-btn w-full text-center mt-2">
+            Admin Login
+          </a>
         </form>
 
         <div className="mt-6 text-sm text-slate-300">
@@ -211,4 +211,3 @@ export default function LoginPage() {
     </main>
   );
 }
-
