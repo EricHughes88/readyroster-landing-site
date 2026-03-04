@@ -23,7 +23,10 @@ function getPool(): pg.Pool {
 
 function getSuperAdminEmails(): string[] {
   const raw = process.env.SUPER_ADMIN_EMAILS || "";
-  return raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function getIp(req: NextRequest) {
@@ -34,18 +37,27 @@ function getIp(req: NextRequest) {
   );
 }
 
+/**
+ * ✅ Allowed roles you can set from the UI.
+ * Keep these EXACTLY matching what you store in public.users.role
+ */
+const ALLOWED_ROLES = ["Parent", "Admin", "Super Admin"] as const;
+type AllowedRole = (typeof ALLOWED_ROLES)[number];
+
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authConfig);
 
   if (!session?.user) {
     return NextResponse.json({ ok: false, message: "Not signed in" }, { status: 401 });
   }
-  const role = (session.user as any)?.role;
-  if (role !== "Admin") {
+
+  // Must already be an Admin (or Super Admin) to access this endpoint
+  const sessionRole = String((session.user as any)?.role || "").trim();
+  if (sessionRole !== "Admin" && sessionRole !== "Super Admin") {
     return NextResponse.json({ ok: false, message: "Access denied" }, { status: 403 });
   }
 
-  // ✅ Super Admin only
+  // ✅ Super Admin only (via allowlist)
   const email = String((session.user as any)?.email ?? "").trim().toLowerCase();
   const supers = getSuperAdminEmails();
   if (!supers.length || !supers.includes(email)) {
@@ -53,26 +65,45 @@ export async function PATCH(req: NextRequest) {
   }
 
   const adminUserId = Number((session.user as any)?.id);
-  if (!Number.isFinite(adminUserId)) {
-    return NextResponse.json({ ok: false, message: "Invalid session user id" }, { status: 400 });
+  if (!Number.isFinite(adminUserId) || adminUserId <= 0) {
+    return NextResponse.json(
+      { ok: false, message: "Invalid session user id" },
+      { status: 400 }
+    );
   }
 
   const body = await req.json().catch(() => ({}));
   const userId = Number(body?.userId);
-  const newRole = String(body?.role || "").trim();
+  const newRole = String(body?.role || "").trim() as AllowedRole;
 
   if (!Number.isFinite(userId) || userId <= 0) {
     return NextResponse.json({ ok: false, message: "Invalid userId" }, { status: 400 });
   }
-  if (!["Admin", "Parent"].includes(newRole)) {
-    return NextResponse.json({ ok: false, message: "Invalid role" }, { status: 400 });
+  if (!ALLOWED_ROLES.includes(newRole)) {
+    return NextResponse.json(
+      { ok: false, message: `Invalid role. Allowed: ${ALLOWED_ROLES.join(", ")}` },
+      { status: 400 }
+    );
   }
 
   const pool = getPool();
 
-  // prevent locking yourself out accidentally
-  if (userId === adminUserId && newRole !== "Admin") {
-    return NextResponse.json({ ok: false, message: "You cannot remove your own Admin role." }, { status: 400 });
+  // ✅ Prevent locking yourself out accidentally:
+  // - You cannot demote yourself to Parent
+  // - You cannot demote yourself from Super Admin to Admin (recommended)
+  if (userId === adminUserId) {
+    if (newRole === "Parent") {
+      return NextResponse.json(
+        { ok: false, message: "You cannot remove your own admin access." },
+        { status: 400 }
+      );
+    }
+    if (sessionRole === "Super Admin" && newRole === "Admin") {
+      return NextResponse.json(
+        { ok: false, message: "You cannot demote yourself from Super Admin." },
+        { status: 400 }
+      );
+    }
   }
 
   const { rows } = await pool.query(
@@ -102,7 +133,7 @@ export async function PATCH(req: NextRequest) {
       userAgent: req.headers.get("user-agent"),
     });
   } catch {
-    // ignore
+    // ignore audit logging failures
   }
 
   return NextResponse.json({ ok: true, user: updated });

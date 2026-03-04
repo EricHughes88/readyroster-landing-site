@@ -18,15 +18,20 @@ function safeStr(v: any) {
   return v === null || v === undefined ? "" : String(v);
 }
 
+function normalizeRole(r: any) {
+  const s = safeStr(r).trim();
+  return s || "Parent";
+}
+
+type RoleFilter = "All" | "Super Admin" | "Admin" | "Coach" | "Parent" | "Athlete";
+
 export default function AdminsManagerPage() {
   const [rows, setRows] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"All" | "Admin" | "Coach" | "Parent" | "Athlete">(
-    "All"
-  );
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("All");
 
   async function load() {
     try {
@@ -46,7 +51,9 @@ export default function AdminsManagerPage() {
         throw new Error(data?.message || "Failed to load users");
       }
 
-      setRows(Array.isArray(data.rows) ? data.rows : []);
+      // your API might return rows OR users — accept both
+      const list = Array.isArray(data.rows) ? data.rows : Array.isArray(data.users) ? data.users : [];
+      setRows(list);
     } catch (e: any) {
       setErr(String(e?.message ?? e));
     } finally {
@@ -61,16 +68,23 @@ export default function AdminsManagerPage() {
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    if (!qq) return rows;
-    return rows.filter((r) => {
+    const base =
+      roleFilter === "All"
+        ? rows
+        : rows.filter((r) => normalizeRole(r.role) === roleFilter);
+
+    if (!qq) return base;
+
+    return base.filter((r) => {
       const name = `${safeStr(r.firstname)} ${safeStr(r.lastname)}`.toLowerCase();
       const email = safeStr(r.email).toLowerCase();
-      return name.includes(qq) || email.includes(qq);
+      const role = normalizeRole(r.role).toLowerCase();
+      return name.includes(qq) || email.includes(qq) || role.includes(qq);
     });
-  }, [rows, q]);
+  }, [rows, q, roleFilter]);
 
-  async function setRole(userId: number, role: "Admin" | "Parent") {
-    if (!confirm(`Set user #${userId} role to ${role}?`)) return;
+  async function setRole(userId: number, role: "Super Admin" | "Admin" | "Parent") {
+    if (!confirm(`Set user #${userId} role to "${role}"?`)) return;
 
     try {
       const res = await fetch("/api/admin/users/role", {
@@ -116,6 +130,11 @@ export default function AdminsManagerPage() {
     minHeight: 36,
   };
 
+  const dangerBtn: React.CSSProperties = {
+    ...btn,
+    background: "#111827",
+  };
+
   return (
     <main style={{ padding: 20 }}>
       <div style={{ maxWidth: 1100, margin: "0 auto", marginBottom: 12 }}>
@@ -128,17 +147,18 @@ export default function AdminsManagerPage() {
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, color: "#fff" }}>
-              Manage Admins (Super Admin)
+              Admin Management (Super Admin)
             </h1>
             <p style={{ marginTop: 6, color: "#94a3b8" }}>
-              Promote/demote Admin access (Super Admin stays controlled by SUPER_ADMIN_EMAILS).
+              Promote/demote users without SQL. Only Super Admin (by SUPER_ADMIN_EMAILS) can use
+              these actions.
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <select
               value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value as any)}
+              onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
               style={{
                 border: "1px solid #334155",
                 background: "#0b1220",
@@ -150,6 +170,7 @@ export default function AdminsManagerPage() {
               }}
             >
               <option value="All">All roles</option>
+              <option value="Super Admin">Super Admin</option>
               <option value="Admin">Admin</option>
               <option value="Coach">Coach</option>
               <option value="Parent">Parent</option>
@@ -159,7 +180,7 @@ export default function AdminsManagerPage() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search name or email…"
+              placeholder="Search name, email, or role…"
               style={{
                 border: "1px solid #334155",
                 background: "#0b1220",
@@ -197,7 +218,7 @@ export default function AdminsManagerPage() {
         </div>
 
         <div style={{ marginTop: 12, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
             <thead>
               <tr style={{ textAlign: "left", color: "#94a3b8" }}>
                 <th style={{ padding: "10px 12px" }}>Name</th>
@@ -210,7 +231,8 @@ export default function AdminsManagerPage() {
             <tbody>
               {filtered.map((u) => {
                 const name = `${safeStr(u.firstname)} ${safeStr(u.lastname)}`.trim() || "(no name)";
-                const role = safeStr(u.role) || "Parent";
+                const role = normalizeRole(u.role);
+
                 return (
                   <tr key={u.id} style={{ borderTop: "1px solid #334155" }}>
                     <td style={{ padding: "10px 12px", color: "#fff", fontWeight: 700 }}>{name}</td>
@@ -219,19 +241,29 @@ export default function AdminsManagerPage() {
                     <td style={{ padding: "10px 12px" }}>
                       {u.created_at ? new Date(u.created_at).toLocaleString() : ""}
                     </td>
+
                     <td style={{ padding: "10px 12px" }}>
-                      {role === "Admin" ? (
-                        <button
-                          onClick={() => setRole(u.id, "Parent")}
-                          style={{ ...btn, background: "#111827" }}
-                        >
-                          Remove Admin
-                        </button>
-                      ) : (
-                        <button onClick={() => setRole(u.id, "Admin")} style={btn}>
-                          Make Admin
-                        </button>
-                      )}
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {role !== "Super Admin" ? (
+                          <button onClick={() => setRole(u.id, "Super Admin")} style={btn}>
+                            Make Super Admin
+                          </button>
+                        ) : (
+                          <button onClick={() => setRole(u.id, "Admin")} style={dangerBtn}>
+                            Remove Super (→ Admin)
+                          </button>
+                        )}
+
+                        {role === "Admin" || role === "Super Admin" ? (
+                          <button onClick={() => setRole(u.id, "Parent")} style={dangerBtn}>
+                            Remove Admin
+                          </button>
+                        ) : (
+                          <button onClick={() => setRole(u.id, "Admin")} style={btn}>
+                            Make Admin
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -249,7 +281,17 @@ export default function AdminsManagerPage() {
         </div>
 
         <div style={{ marginTop: 12, color: "#94a3b8", fontSize: 12 }}>
-          Tip: Add a Super Admin link on your dashboard only for you (we can do that after you test).
+          Notes:
+          <ul style={{ marginTop: 6, marginBottom: 0, paddingLeft: 18 }}>
+            <li>
+              This page calls <code>/api/admin/users</code> to list users and{" "}
+              <code>/api/admin/users/role</code> (PATCH) to update roles.
+            </li>
+            <li>
+              Your API enforces Super Admin via <code>SUPER_ADMIN_EMAILS</code>, so the buttons are
+              safe even if someone finds the URL.
+            </li>
+          </ul>
         </div>
       </div>
     </main>
