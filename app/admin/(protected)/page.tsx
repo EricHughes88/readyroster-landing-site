@@ -119,8 +119,7 @@ function Sparkline({
 
   const points = safe
     .map((v, i) => {
-      const x =
-        pad + (i * (width - pad * 2)) / Math.max(1, safe.length - 1);
+      const x = pad + (i * (width - pad * 2)) / Math.max(1, safe.length - 1);
       const t = max === min ? 0.5 : (v - min) / (max - min);
       const y = pad + (1 - t) * (height - pad * 2);
       return `${x},${y}`;
@@ -275,7 +274,9 @@ export default function AdminDashboardPage() {
     const needle = q.trim().toLowerCase();
 
     const base = needle
-      ? traction.filter((r) => displayEventName(r).toLowerCase().includes(needle))
+      ? traction.filter((r) =>
+          displayEventName(r).toLowerCase().includes(needle)
+        )
       : traction.slice();
 
     const dir = sortDir === "asc" ? 1 : -1;
@@ -349,7 +350,14 @@ export default function AdminDashboardPage() {
         }}
       >
         <div>
-          <h1 style={{ fontSize: 34, fontWeight: 900, margin: 0, color: "#fff" }}>
+          <h1
+            style={{
+              fontSize: 34,
+              fontWeight: 900,
+              margin: 0,
+              color: "#fff",
+            }}
+          >
             Admin Dashboard
           </h1>
           <p style={{ marginTop: 6, color: "#94a3b8" }}>
@@ -369,24 +377,51 @@ export default function AdminDashboardPage() {
         >
           {/* ✅ Directory buttons */}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <Link href={"/admin/athletes" as Route} prefetch={false} style={navBtn}>
+            <Link
+              href={"/admin/athletes" as Route}
+              prefetch={false}
+              style={navBtn}
+            >
               Athletes DB
             </Link>
 
-            <Link href={"/admin/coaches" as Route} prefetch={false} style={navBtn}>
+            <Link
+              href={"/admin/coaches" as Route}
+              prefetch={false}
+              style={navBtn}
+            >
               Coaches DB
             </Link>
 
             {/* ✅ Event Intelligence */}
-            <Link href={"/admin/insights" as Route} prefetch={false} style={navBtn}>
+            <Link
+              href={"/admin/insights" as Route}
+              prefetch={false}
+              style={navBtn}
+            >
               Event Intelligence
             </Link>
 
-            {/* ✅ ONLY SUPER ADMIN sees Admin Activity button */}
+            {/* ✅ ONLY SUPER ADMIN sees Admin Activity + Manage Admins */}
             {isSuperAdmin ? (
-              <Link href={"/admin/activity" as Route} prefetch={false} style={navBtn}>
-                Admin Activity
-              </Link>
+              <>
+                <Link
+                  href={"/admin/activity" as Route}
+                  prefetch={false}
+                  style={navBtn}
+                >
+                  Admin Activity
+                </Link>
+
+                {/* ✅ NEW: Manage Admins (promote/demote users) */}
+                <Link
+                  href={"/admin/admins" as Route}
+                  prefetch={false}
+                  style={navBtn}
+                >
+                  Manage Admins
+                </Link>
+              </>
             ) : null}
           </div>
 
@@ -476,7 +511,9 @@ export default function AdminDashboardPage() {
           gap: 12,
         }}
       >
-        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
+        <div
+          style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}
+        >
           <div
             style={{
               display: "flex",
@@ -498,7 +535,9 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        <div style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}>
+        <div
+          style={{ border: "1px solid #334155", borderRadius: 12, padding: 12 }}
+        >
           <div
             style={{
               display: "flex",
@@ -574,35 +613,77 @@ export default function AdminDashboardPage() {
               <tr style={{ textAlign: "left", color: "#94a3b8" }}>
                 <th style={{ padding: "10px 12px" }}>
                   <button style={thBtn} onClick={() => toggleSort("event_name")}>
-                    Event {sortKey === "event_name" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    Event{" "}
+                    {sortKey === "event_name"
+                      ? sortDir === "asc"
+                        ? "▲"
+                        : "▼"
+                      : ""}
                   </button>
                 </th>
                 <th style={{ padding: "10px 12px" }}>
-                  <button style={thBtn} onClick={() => toggleSort("coach_needs")}>
-                    Coach needs {sortKey === "coach_needs" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  <button
+                    style={thBtn}
+                    onClick={() => toggleSort("coach_needs")}
+                  >
+                    Coach needs{" "}
+                    {sortKey === "coach_needs"
+                      ? sortDir === "asc"
+                        ? "▲"
+                        : "▼"
+                      : ""}
                   </button>
                 </th>
                 <th style={{ padding: "10px 12px" }}>
-                  <button style={thBtn} onClick={() => toggleSort("unique_coaches")}>
+                  <button
+                    style={thBtn}
+                    onClick={() => toggleSort("unique_coaches")}
+                  >
                     Unique coaches{" "}
-                    {sortKey === "unique_coaches" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    {sortKey === "unique_coaches"
+                      ? sortDir === "asc"
+                        ? "▲"
+                        : "▼"
+                      : ""}
                   </button>
                 </th>
                 <th style={{ padding: "10px 12px" }}>
-                  <button style={thBtn} onClick={() => toggleSort("athlete_interest")}>
+                  <button
+                    style={thBtn}
+                    onClick={() => toggleSort("athlete_interest")}
+                  >
                     Athlete interest{" "}
-                    {sortKey === "athlete_interest" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    {sortKey === "athlete_interest"
+                      ? sortDir === "asc"
+                        ? "▲"
+                        : "▼"
+                      : ""}
                   </button>
                 </th>
                 <th style={{ padding: "10px 12px" }}>
-                  <button style={thBtn} onClick={() => toggleSort("unique_athletes")}>
+                  <button
+                    style={thBtn}
+                    onClick={() => toggleSort("unique_athletes")}
+                  >
                     Unique athletes{" "}
-                    {sortKey === "unique_athletes" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    {sortKey === "unique_athletes"
+                      ? sortDir === "asc"
+                        ? "▲"
+                        : "▼"
+                      : ""}
                   </button>
                 </th>
                 <th style={{ padding: "10px 12px" }}>
-                  <button style={thBtn} onClick={() => toggleSort("supply_gap")}>
-                    Supply gap {sortKey === "supply_gap" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                  <button
+                    style={thBtn}
+                    onClick={() => toggleSort("supply_gap")}
+                  >
+                    Supply gap{" "}
+                    {sortKey === "supply_gap"
+                      ? sortDir === "asc"
+                        ? "▲"
+                        : "▼"
+                      : ""}
                   </button>
                 </th>
               </tr>
@@ -613,12 +694,8 @@ export default function AdminDashboardPage() {
                 const eventKey = normalizeEventKey(name);
 
                 return (
-                  <tr
-                    key={`${eventKey}-${idx}`}
-                    style={{ borderTop: "1px solid #334155" }}
-                  >
+                  <tr key={`${eventKey}-${idx}`} style={{ borderTop: "1px solid #334155" }}>
                     <td style={{ padding: "10px 12px" }}>
-                      {/* Use eventKey in the URL so drilldowns are stable */}
                       <Link
                         href={`/admin/events/${encodeURIComponent(eventKey)}`}
                         style={{ color: "#fff", textDecoration: "underline" }}
