@@ -11,47 +11,98 @@ function jsonError(message: string, status = 500, details?: unknown) {
   return NextResponse.json({ ok: false, message, details }, { status });
 }
 
+/**
+ * Strong SQL-side event normalization:
+ * - lower
+ * - trim
+ * - collapse whitespace
+ * - remove punctuation (keep letters/numbers/spaces)
+ *
+ * This prevents "split buckets" from punctuation or spacing differences.
+ */
+const EVENT_KEY_SQL = (col: string) => `
+  TRIM(
+    REGEXP_REPLACE(
+      REGEXP_REPLACE(
+        LOWER(COALESCE(${col}, '')),
+        '[^a-z0-9\\s]+',  -- strip punctuation/symbols
+        '',
+        'g'
+      ),
+      '\\s+',
+      ' ',
+      'g'
+    )
+  )
+`;
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
     const daysRaw = Number(url.searchParams.get("days") || 30);
     const limitRaw = Number(url.searchParams.get("limit") || 50);
+    const stateRaw = (url.searchParams.get("state") || "").trim();
 
     const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(365, daysRaw)) : 30;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50;
 
-    // Aggregate needs + interests independently, then merge by normalized event name.
-    // This avoids event_date/timezone mismatches causing athlete_interest to show 0.
+    // Optional: filter by state if provided (e.g. ?state=NY)
+    // NOTE: The join targets here may need to be adjusted to your actual schema.
+    // If you paste your teams/wrestlers/athletes schema, I'll wire it perfectly.
+    const hasState = Boolean(stateRaw);
+    const state = stateRaw.toUpperCase();
+
+    // Parameter positions:
+    // $1 = days
+    // $2 = limit
+    // $3 = state (optional)
     const q = `
       WITH
       needs AS (
         SELECT
-          TRIM(LOWER(cn.event_name)) AS event_key,
-          MAX(cn.event_name)         AS event_name,
-          COUNT(*)::int             AS coach_needs,
+          ${EVENT_KEY_SQL("cn.event_name")} AS event_key,
+          MAX(cn.event_name)               AS event_name,
+          COUNT(*)::int                    AS coach_needs,
           COUNT(DISTINCT cn.coach_user_id)::int AS unique_coaches
         FROM public.coach_needs cn
+        ${hasState ? `
+        LEFT JOIN public.teams t
+          ON t.user_id = cn.coach_user_id
+        ` : ``}
         WHERE cn.created_at >= NOW() - ($1::int || ' days')::interval
-        GROUP BY TRIM(LOWER(cn.event_name))
+        ${hasState ? `AND t.state = $3` : ``}
+        GROUP BY ${EVENT_KEY_SQL("cn.event_name")}
       ),
       interests AS (
         SELECT
-          TRIM(LOWER(wi.event_name)) AS event_key,
-          MAX(wi.event_name)         AS event_name,
-          COUNT(*)::int              AS athlete_interest,
+          ${EVENT_KEY_SQL("wi.event_name")} AS event_key,
+          MAX(wi.event_name)               AS event_name,
+          COUNT(*)::int                    AS athlete_interest,
           COUNT(DISTINCT wi.wrestler_id)::int AS unique_athletes
         FROM public.wrestler_interests wi
+        ${hasState ? `
+        LEFT JOIN public.wrestlers w
+          ON w.id = wi.wrestler_id
+        ` : ``}
         WHERE wi.created_at >= NOW() - ($1::int || ' days')::interval
-        GROUP BY TRIM(LOWER(wi.event_name))
+        ${hasState ? `AND w.state = $3` : ``}
+        GROUP BY ${EVENT_KEY_SQL("wi.event_name")}
       )
       SELECT
         COALESCE(n.event_name, i.event_name) AS event,
-        COALESCE(n.event_name, i.event_name) AS event_name, -- support either UI field
-        COALESCE(n.coach_needs, 0) AS coach_needs,
-        COALESCE(n.unique_coaches, 0) AS unique_coaches,
-        COALESCE(i.athlete_interest, 0) AS athlete_interest,
-        COALESCE(i.unique_athletes, 0) AS unique_athletes,
+        COALESCE(n.event_name, i.event_name) AS event_name,
+
+        -- Stable identity:
+        COALESCE(n.event_key, i.event_key) AS event_key,
+
+        -- URL-friendly drilldown slug (spaces -> dashes)
+        REGEXP_REPLACE(COALESCE(n.event_key, i.event_key), '\\s+', '-', 'g') AS event_slug,
+
+        COALESCE(n.coach_needs, 0)        AS coach_needs,
+        COALESCE(n.unique_coaches, 0)     AS unique_coaches,
+        COALESCE(i.athlete_interest, 0)   AS athlete_interest,
+        COALESCE(i.unique_athletes, 0)    AS unique_athletes,
         (COALESCE(n.coach_needs, 0) - COALESCE(i.athlete_interest, 0)) AS supply_gap
       FROM needs n
       FULL OUTER JOIN interests i
@@ -64,17 +115,19 @@ export async function GET(req: NextRequest) {
       LIMIT $2::int;
     `;
 
-    const res = await pool.query(q, [days, limit]);
+    const params: any[] = [days, limit];
+    if (hasState) params.push(state);
+
+    const res = await pool.query(q, params);
     const rows = Array.isArray(res.rows) ? res.rows : [];
 
     // IMPORTANT: return under multiple common keys so the dashboard doesn't break
-    // regardless of what it was coded to expect.
     return NextResponse.json({
       ok: true,
       days,
       limit,
+      state: hasState ? state : null,
 
-      // common payload keys (one of these is what your UI is using)
       rows,
       data: rows,
       events: rows,

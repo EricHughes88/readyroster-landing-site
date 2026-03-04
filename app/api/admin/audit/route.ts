@@ -28,21 +28,54 @@ function isMissingTableError(err: any) {
   return String(err?.code) === "42P01";
 }
 
+function getSuperAdminEmails(): string[] {
+  const raw = process.env.SUPER_ADMIN_EMAILS || "";
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authConfig);
-  const role = (session?.user as any)?.role;
 
   if (!session?.user) {
-    return NextResponse.json({ ok: false, message: "Not signed in" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, message: "Not signed in" },
+      { status: 401 }
+    );
   }
+
+  const role = (session.user as any)?.role;
   if (role !== "Admin") {
-    return NextResponse.json({ ok: false, message: "Access denied" }, { status: 403 });
+    return NextResponse.json(
+      { ok: false, message: "Access denied" },
+      { status: 403 }
+    );
+  }
+
+  // ✅ Super Admin gate: ONLY allow the allowlisted emails to read audit log
+  const email = String((session.user as any)?.email ?? "")
+    .trim()
+    .toLowerCase();
+
+  const superAdmins = getSuperAdminEmails();
+
+  // If SUPER_ADMIN_EMAILS isn't set, default to deny (safer)
+  if (!superAdmins.length || !superAdmins.includes(email)) {
+    return NextResponse.json(
+      { ok: false, message: "Access denied" },
+      { status: 403 }
+    );
   }
 
   const pool = getPool();
 
   const url = new URL(req.url);
-  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 50), 1), 200);
+  const limit = Math.min(
+    Math.max(Number(url.searchParams.get("limit") || 50), 1),
+    200
+  );
 
   try {
     const { rows } = await pool.query(
@@ -70,16 +103,23 @@ export async function GET(req: NextRequest) {
 
     // ✅ Intentionally DO NOT log "view_admin_activity_feed"
     // This endpoint is the audit feed itself; logging it creates spam and hides real actions.
-
     return NextResponse.json({ ok: true, items: rows });
   } catch (err: any) {
     if (isMissingTableError(err)) {
       // Table not created yet → return empty feed instead of 500
-      return NextResponse.json({ ok: true, items: [], warning: "admin_audit_log_missing" });
+      return NextResponse.json({
+        ok: true,
+        items: [],
+        warning: "admin_audit_log_missing",
+      });
     }
 
     return NextResponse.json(
-      { ok: false, message: "Failed to load admin audit log", details: String(err?.message ?? err) },
+      {
+        ok: false,
+        message: "Failed to load admin audit log",
+        details: String(err?.message ?? err),
+      },
       { status: 500 }
     );
   }
