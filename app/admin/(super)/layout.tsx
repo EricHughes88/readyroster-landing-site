@@ -4,34 +4,44 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authConfig } from "@/auth.config";
 
-function getSuperAdminEmails(): string[] {
-  const raw = process.env.SUPER_ADMIN_EMAILS || "";
-  return raw
+function getSuperEmails(): string[] {
+  return String(process.env.SUPER_ADMIN_EMAILS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 }
 
-export default async function AdminSuperLayout({
+type SessionLike =
+  | {
+      user?: {
+        email?: string | null;
+        role?: string | null;
+        id?: string | number | null;
+        name?: string | null;
+      };
+    }
+  | null;
+
+export default async function SuperAdminLayout({
   children,
 }: {
   children: ReactNode;
 }) {
-  const session = await getServerSession(authConfig);
+  // ✅ Fix TS: getServerSession types to {} in some setups; cast to our minimal shape
+  const session = (await getServerSession(authConfig as any)) as SessionLike;
 
-  if (!session?.user) redirect("/login?callbackUrl=/admin");
+  if (!session?.user) {
+    redirect("/login");
+  }
 
-  const role = (session.user as any)?.role;
-  const email = String((session.user as any)?.email ?? "")
-    .trim()
-    .toLowerCase();
+  const email = String(session.user.email ?? "").trim().toLowerCase();
+  const supers = getSuperEmails();
 
-  if (role !== "Admin") redirect("/access-denied?to=%2Fadmin");
+  // ✅ Super Admin = allowlist only (SUPER_ADMIN_EMAILS)
+  const isSuper = Boolean(email && supers.includes(email));
 
-  const allow = getSuperAdminEmails();
-  // safer default: if env is missing, deny
-  if (!allow.length || !allow.includes(email)) {
-    redirect("/access-denied?to=%2Fadmin%2Fadmins");
+  if (!isSuper) {
+    redirect("/access-denied?path=/admin/admins");
   }
 
   return <>{children}</>;

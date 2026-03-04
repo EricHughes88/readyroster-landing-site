@@ -22,8 +22,7 @@ function getPool(): pg.Pool {
 }
 
 function getSuperAdminEmails(): string[] {
-  const raw = process.env.SUPER_ADMIN_EMAILS || "";
-  return raw
+  return String(process.env.SUPER_ADMIN_EMAILS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
@@ -37,44 +36,40 @@ function getIp(req: NextRequest) {
   );
 }
 
-/**
- * ✅ Allowed roles you can set from the UI.
- * Keep these EXACTLY matching what you store in public.users.role
- */
 const ALLOWED_ROLES = ["Parent", "Admin", "Super Admin"] as const;
 type AllowedRole = (typeof ALLOWED_ROLES)[number];
 
 export async function PATCH(req: NextRequest) {
-  const session = await getServerSession(authConfig);
+  const session = (await getServerSession(authConfig as any)) as any;
 
   if (!session?.user) {
     return NextResponse.json({ ok: false, message: "Not signed in" }, { status: 401 });
   }
 
-  // Must already be an Admin (or Super Admin) to access this endpoint
-  const sessionRole = String((session.user as any)?.role || "").trim();
-  if (sessionRole !== "Admin" && sessionRole !== "Super Admin") {
+  const email = String(session.user.email ?? "").trim().toLowerCase();
+  const role = String(session.user.role ?? "").trim();
+
+  const allowByEmail = getSuperAdminEmails().includes(email);
+  const allowByRole = role === "Admin" || role === "Super Admin";
+
+  // ✅ Super-only endpoint (must be super email allowlist OR DB role)
+  if (!allowByEmail && role !== "Super Admin") {
     return NextResponse.json({ ok: false, message: "Access denied" }, { status: 403 });
   }
 
-  // ✅ Super Admin only (via allowlist)
-  const email = String((session.user as any)?.email ?? "").trim().toLowerCase();
-  const supers = getSuperAdminEmails();
-  if (!supers.length || !supers.includes(email)) {
+  // Also require they are admin-ish (redundant safety)
+  if (!allowByEmail && !allowByRole) {
     return NextResponse.json({ ok: false, message: "Access denied" }, { status: 403 });
   }
 
-  const adminUserId = Number((session.user as any)?.id);
+  const adminUserId = Number(session.user.id);
   if (!Number.isFinite(adminUserId) || adminUserId <= 0) {
-    return NextResponse.json(
-      { ok: false, message: "Invalid session user id" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, message: "Invalid session user id" }, { status: 400 });
   }
 
   const body = await req.json().catch(() => ({}));
   const userId = Number(body?.userId);
-  const newRole = String(body?.role || "").trim() as AllowedRole;
+  const newRole = String(body?.role ?? "").trim() as AllowedRole;
 
   if (!Number.isFinite(userId) || userId <= 0) {
     return NextResponse.json({ ok: false, message: "Invalid userId" }, { status: 400 });
@@ -86,25 +81,15 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  const pool = getPool();
-
-  // ✅ Prevent locking yourself out accidentally:
-  // - You cannot demote yourself to Parent
-  // - You cannot demote yourself from Super Admin to Admin (recommended)
-  if (userId === adminUserId) {
-    if (newRole === "Parent") {
-      return NextResponse.json(
-        { ok: false, message: "You cannot remove your own admin access." },
-        { status: 400 }
-      );
-    }
-    if (sessionRole === "Super Admin" && newRole === "Admin") {
-      return NextResponse.json(
-        { ok: false, message: "You cannot demote yourself from Super Admin." },
-        { status: 400 }
-      );
-    }
+  // ✅ prevent you from demoting yourself to Parent accidentally
+  if (userId === adminUserId && newRole === "Parent") {
+    return NextResponse.json(
+      { ok: false, message: "You cannot remove your own admin access." },
+      { status: 400 }
+    );
   }
+
+  const pool = getPool();
 
   const { rows } = await pool.query(
     `
@@ -121,7 +106,6 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: false, message: "User not found" }, { status: 404 });
   }
 
-  // log it
   try {
     await logAdminEvent({
       adminUserId,
@@ -133,7 +117,7 @@ export async function PATCH(req: NextRequest) {
       userAgent: req.headers.get("user-agent"),
     });
   } catch {
-    // ignore audit logging failures
+    // ignore
   }
 
   return NextResponse.json({ ok: true, user: updated });

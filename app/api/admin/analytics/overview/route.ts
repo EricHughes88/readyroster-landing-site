@@ -1,7 +1,8 @@
 // app/api/admin/analytics/overview/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
+import { getServerSession } from "next-auth";
+import { authConfig } from "@/auth.config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,8 +21,39 @@ function clampDays(raw: string | null) {
   return Math.max(1, Math.min(365, Math.floor(n)));
 }
 
+function getSuperEmails() {
+  return String(process.env.SUPER_ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+async function requireAdminOrSuper(req: NextRequest) {
+  const session = (await getServerSession(authConfig as any)) as any;
+
+  if (!session?.user) {
+    return { ok: false as const, status: 401, message: "Unauthorized" };
+  }
+
+  const role = String(session.user.role ?? "").trim();
+  const email = String(session.user.email ?? "").trim().toLowerCase();
+
+  const allowByRole = role === "Admin" || role === "Super Admin";
+  const allowByEmail = getSuperEmails().includes(email);
+
+  if (!allowByRole && !allowByEmail) {
+    return { ok: false as const, status: 403, message: "Forbidden" };
+  }
+
+  return { ok: true as const, session };
+}
+
 export async function GET(req: NextRequest) {
   try {
+    // ✅ AUTH GATE
+    const gate = await requireAdminOrSuper(req);
+    if (!gate.ok) return jsonError(gate.message, gate.status);
+
     const url = new URL(req.url);
     const days = clampDays(url.searchParams.get("days"));
 
@@ -122,7 +154,7 @@ export async function GET(req: NextRequest) {
 
     const result = await pool.query(sql, [days]);
 
-    const trend = result.rows.map((r) => ({
+    const trend = (result.rows ?? []).map((r: any) => ({
       day: r.day,
       new_users: Number(r.new_users ?? 0),
       needs_posted: Number(r.needs_posted ?? 0),
@@ -161,14 +193,8 @@ export async function GET(req: NextRequest) {
         messages_sent: totals.messages_sent,
       },
       trend: {
-        new_users: trend.map((d) => ({
-          day: d.day,
-          count: d.new_users,
-        })),
-        activity: trend.map((d) => ({
-          day: d.day,
-          total: d.activity_total,
-        })),
+        new_users: trend.map((d) => ({ day: d.day, count: d.new_users })),
+        activity: trend.map((d) => ({ day: d.day, total: d.activity_total })),
       },
     });
   } catch (e: any) {
