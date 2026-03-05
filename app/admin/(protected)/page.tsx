@@ -83,21 +83,6 @@ function pickArray<T>(obj: any, keys: string[]): T[] {
   return [];
 }
 
-/**
- * Normalize event identifiers so UI buckets / drilldowns don't split
- * (e.g. "Cheesehead  Duals" vs "Cheesehead Duals" vs "cheesehead duals")
- */
-function normalizeEventKey(name: string) {
-  const s = String(name ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/[^\w\s-]/g, "") // drop punctuation except dash/underscore
-    .trim()
-    .replace(/\s/g, "-"); // slug
-  return s || "unknown-event";
-}
-
 function displayEventName(r: TractionRow) {
   return String(r.event_name ?? r.event ?? "").trim() || "Unknown event";
 }
@@ -402,6 +387,15 @@ export default function AdminDashboardPage() {
               Event Intelligence
             </Link>
 
+            {/* ✅ NEW: Normalize Events (rename/merge tool) */}
+            <Link
+              href={"/admin/events" as Route}
+              prefetch={false}
+              style={navBtn}
+            >
+              Normalize Events
+            </Link>
+
             {/* ✅ ONLY SUPER ADMIN sees Admin Activity + Manage Admins */}
             {isSuperAdmin ? (
               <>
@@ -413,7 +407,7 @@ export default function AdminDashboardPage() {
                   Admin Activity
                 </Link>
 
-                {/* ✅ NEW: Manage Admins (promote/demote users) */}
+                {/* ✅ Manage Admins (promote/demote users) */}
                 <Link
                   href={"/admin/admins" as Route}
                   prefetch={false}
@@ -688,26 +682,41 @@ export default function AdminDashboardPage() {
                 </th>
               </tr>
             </thead>
+
             <tbody>
               {filteredSortedTraction.map((r, idx) => {
                 const name = displayEventName(r);
-                const eventKey = normalizeEventKey(name);
 
                 return (
-                  <tr key={`${eventKey}-${idx}`} style={{ borderTop: "1px solid #334155" }}>
+                  <tr
+                    key={`${name}-${idx}`}
+                    style={{ borderTop: "1px solid #334155" }}
+                  >
                     <td style={{ padding: "10px 12px" }}>
+                      {/* ✅ Send to Normalize Events (you don't have /admin/events/[slug] yet) */}
                       <Link
-                        href={`/admin/events/${encodeURIComponent(eventKey)}`}
+                        href={"/admin/events" as Route}
+                        prefetch={false}
                         style={{ color: "#fff", textDecoration: "underline" }}
                       >
                         {name}
                       </Link>
                     </td>
-                    <td style={{ padding: "10px 12px" }}>{toNum(r.coach_needs)}</td>
-                    <td style={{ padding: "10px 12px" }}>{toNum(r.unique_coaches)}</td>
-                    <td style={{ padding: "10px 12px" }}>{toNum(r.athlete_interest)}</td>
-                    <td style={{ padding: "10px 12px" }}>{toNum(r.unique_athletes)}</td>
-                    <td style={{ padding: "10px 12px" }}>{toNum(r.supply_gap)}</td>
+                    <td style={{ padding: "10px 12px" }}>
+                      {toNum(r.coach_needs)}
+                    </td>
+                    <td style={{ padding: "10px 12px" }}>
+                      {toNum(r.unique_coaches)}
+                    </td>
+                    <td style={{ padding: "10px 12px" }}>
+                      {toNum(r.athlete_interest)}
+                    </td>
+                    <td style={{ padding: "10px 12px" }}>
+                      {toNum(r.unique_athletes)}
+                    </td>
+                    <td style={{ padding: "10px 12px" }}>
+                      {toNum(r.supply_gap)}
+                    </td>
                   </tr>
                 );
               })}
@@ -771,7 +780,9 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
                 {f.message ? (
-                  <div style={{ marginTop: 6, color: "#cbd5e1" }}>{f.message}</div>
+                  <div style={{ marginTop: 6, color: "#cbd5e1" }}>
+                    {f.message}
+                  </div>
                 ) : null}
               </div>
             ))
