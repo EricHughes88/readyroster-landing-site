@@ -23,10 +23,10 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    const oldName = String(body?.oldName ?? "").trim();
-    const newName = String(body?.newName ?? "").trim();
+    const fromName = String(body?.fromName ?? "").trim();
+    const toName = String(body?.toName ?? "").trim();
 
-    if (!oldName || !newName) {
+    if (!fromName || !toName) {
       return jsonError("Missing event names", 400);
     }
 
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
         SET event_name = $1
         WHERE event_name = $2
         `,
-        [newName, oldName]
+        [toName, fromName]
       );
 
       await client.query(
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
         SET event_name = $1
         WHERE event_name = $2
         `,
-        [newName, oldName]
+        [toName, fromName]
       );
 
       await client.query("COMMIT");
@@ -63,10 +63,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      message: "Event renamed successfully",
+      message: "Events merged successfully",
     });
   } catch (e: any) {
-    console.error("rename events error:", e);
+    console.error("merge events error:", e);
     return jsonError(e?.message || "Server error", 500);
   }
 }
