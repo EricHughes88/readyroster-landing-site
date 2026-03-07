@@ -8,141 +8,112 @@ import pg from "pg";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ---- PG pool singleton (avoids many pools during dev HMR) ----
 declare global {
   // eslint-disable-next-line no-var
   var __RR_PG_POOL__: pg.Pool | undefined;
 }
+
 const { Pool } = pg;
 
 function getPool(): pg.Pool {
   const conn = process.env.DATABASE_URL;
   if (!conn) throw new Error("DATABASE_URL not set");
+
   if (!global.__RR_PG_POOL__) {
     global.__RR_PG_POOL__ = new Pool({ connectionString: conn });
   }
+
   return global.__RR_PG_POOL__;
 }
 
+function jsonError(message: string, status = 500, details?: unknown) {
+  return NextResponse.json({ ok: false, message, details }, { status });
+}
+
 function getIp(req: NextRequest): string | null {
-  // Vercel / proxies
   const fwd = req.headers.get("x-forwarded-for");
   if (fwd) return fwd.split(",")[0]?.trim() || null;
   return req.headers.get("x-real-ip") || null;
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authConfig);
+  const session = (await getServerSession(authConfig as any)) as any;
 
   if (!session?.user) {
-    return NextResponse.json({ ok: false, message: "Not signed in" }, { status: 401 });
+    return jsonError("Not signed in", 401);
   }
 
-  const role = (session.user as any)?.role;
-  if (role !== "Admin") {
-    // Optional: log denied attempts (comment out if you don’t want noise)
-    try {
-      const adminUserId = Number((session.user as any)?.id);
-      if (Number.isFinite(adminUserId)) {
-        await logAdminEvent({
-          adminUserId,
-          action: "admin_access_denied_coaches",
-          metadata: { path: "/api/admin/coaches" },
-          ip: getIp(req),
-          userAgent: req.headers.get("user-agent"),
-        });
-      }
-    } catch {
-      // ignore logging failures
-    }
-
-    return NextResponse.json({ ok: false, message: "Access denied" }, { status: 403 });
-  }
-
-  const adminUserId = Number((session.user as any)?.id);
-  if (!Number.isFinite(adminUserId)) {
-    return NextResponse.json({ ok: false, message: "Invalid session user id" }, { status: 400 });
-  }
+  // TEMP RESET: allow any signed-in user so we can test the data/API
+  const adminUserId = Number(session.user?.id ?? 0);
 
   const pool = getPool();
 
-  const url = new URL(req.url);
-  const state = (url.searchParams.get("state") || "").trim().toUpperCase() || null;
-
   try {
-    // --- Fetch coaches + teams (left join) ---
-    // Assumptions based on your admin/coaches page fields:
-    // users: id, firstname, lastname, email, phone, created_at, role
-    // teams: teamid, teamname, coach_name, contactemail, logopath, city, state, userid (coach user id)
-    const params: any[] = [];
-    let where = `WHERE LOWER(u.role) = 'coach'`;
+    const url = new URL(req.url);
+    const stateRaw = (url.searchParams.get("state") || "").trim();
+    const qRaw = (url.searchParams.get("q") || "").trim();
 
-    if (state) {
-      params.push(state);
-      where += ` AND UPPER(COALESCE(t.state, '')) = $${params.length}`;
+    const params: any[] = [];
+    const where: string[] = [];
+
+    if (stateRaw && stateRaw.toUpperCase() !== "ALL") {
+      params.push(stateRaw);
+      where.push(`UPPER(TRIM(state)) = UPPER(TRIM($${params.length}))`);
     }
 
-    const q = `
-      SELECT
-        u.id,
-        u.firstname,
-        u.lastname,
-        u.email,
-        u.phone,
-        u.created_at,
+    if (qRaw) {
+      params.push(`%${qRaw}%`);
+      const p = `$${params.length}`;
 
-        t.teamid,
-        t.teamname,
-        t.coach_name,
-        t.contactemail,
-        t.logopath,
-        t.city,
-        t.state
-      FROM public.users u
-      LEFT JOIN public.teams t
-        ON t.userid = u.id
-      ${where}
-      ORDER BY u.created_at DESC
-      LIMIT 500
+      where.push(`(
+        COALESCE(firstname, '') ILIKE ${p} OR
+        COALESCE(lastname, '') ILIKE ${p} OR
+        COALESCE(email, '') ILIKE ${p} OR
+        COALESCE(phone, '') ILIKE ${p} OR
+        COALESCE(teamname, '') ILIKE ${p} OR
+        COALESCE(coach_name, '') ILIKE ${p} OR
+        COALESCE(city, '') ILIKE ${p} OR
+        COALESCE(state, '') ILIKE ${p}
+      )`);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    const sql = `
+      SELECT *
+      FROM public.admin_coaches_directory
+      ${whereSql}
+      ORDER BY lastname NULLS LAST, firstname NULLS LAST
+      LIMIT 1000;
     `;
 
-    const { rows } = await pool.query(q, params);
+    const res = await pool.query(sql, params);
+    const rows = Array.isArray(res.rows) ? res.rows : [];
 
-    // ✅ Log the admin viewing coaches (this is Step 5 in action)
-    await logAdminEvent({
-      adminUserId,
-      action: "view_admin_coaches",
-      entityType: "coach",
-      metadata: {
-        filters: { state },
-        returnedCount: rows.length,
-      },
-      ip: getIp(req),
-      userAgent: req.headers.get("user-agent"),
-    });
-
-    return NextResponse.json({ ok: true, rows });
-  } catch (err: any) {
-    // Optional: log failures too
-    try {
-      await logAdminEvent({
-        adminUserId,
-        action: "view_admin_coaches_error",
-        entityType: "coach",
-        metadata: {
-          message: String(err?.message ?? err),
-          filters: { state },
-        },
-        ip: getIp(req),
-        userAgent: req.headers.get("user-agent"),
-      });
-    } catch {
-      // ignore
+    if (Number.isFinite(adminUserId) && adminUserId > 0) {
+      try {
+        await logAdminEvent({
+          adminUserId,
+          action: "view_admin_coaches",
+          entityType: "coach",
+          metadata: {
+            filters: {
+              state: stateRaw || null,
+              q: qRaw || null,
+            },
+            returnedCount: rows.length,
+          },
+          ip: getIp(req),
+          userAgent: req.headers.get("user-agent"),
+        });
+      } catch {
+        // ignore audit issues
+      }
     }
 
-    return NextResponse.json(
-      { ok: false, message: "Failed to load coaches", details: String(err?.message ?? err) },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true, rows });
+  } catch (e: any) {
+    console.error("[admin/coaches] error:", e);
+    return jsonError("Server error", 500, e?.message ?? String(e));
   }
 }

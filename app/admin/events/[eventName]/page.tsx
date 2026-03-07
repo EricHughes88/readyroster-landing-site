@@ -1,484 +1,697 @@
-"use client";
-
+// app/admin/events/[eventName]/page.tsx
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { Pool } from "pg";
+import { getServerSession } from "next-auth";
+import { authConfig } from "@/auth.config";
 
-type NeedRow = {
-  id: number | string;
-  coach_user_id: number | string | null;
-  team_name?: string | null;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+type Params = {
+  eventName: string;
+};
+
+type CoachNeedRow = {
+  need_id: number;
   event_name: string | null;
-  event_date: string | null;
   weight_class: string | null;
   age_group: string | null;
+  team_name: string | null;
+  coach_name: string | null;
+  contact_email: string | null;
   city: string | null;
   state: string | null;
-  notes: string | null;
-  is_open: boolean | null;
   created_at: string | null;
 };
 
-type InterestRow = {
-  id: number | string;
-  wrestler_id: number | string | null;
-
-  parent_user_id: number | string | null;
-  first_name: string | null;
-  last_name: string | null;
+type AthleteInterestRow = {
+  interest_id: number;
+  event_name: string | null;
+  weight_class: string | null;
+  age_group: string | null;
+  athlete_name: string | null;
+  parent_name: string | null;
+  parent_email: string | null;
   city: string | null;
   state: string | null;
-
-  age_group: string | null;
-  weight_class: string | null;
-  event_name: string | null;
-  event_date: string | null;
-  notes: string | null;
   created_at: string | null;
 };
 
-type ApiResponse =
-  | {
-      ok: true;
-      event_name: string;
-      event_key: string;
-      needs: NeedRow[];
-      interests: InterestRow[];
-    }
-  | { ok: false; message?: string };
+type MatchRow = {
+  match_id: number;
+  event_name: string | null;
+  status: string | null;
+  athlete_name: string | null;
+  team_name: string | null;
+  coach_name: string | null;
+  created_at: string | null;
+};
 
-function safeStr(v: any) {
-  return v === null || v === undefined ? "" : String(v);
+function fmt(v: unknown, fallback = "—") {
+  return v === null || v === undefined || String(v).trim() === ""
+    ? fallback
+    : String(v);
 }
 
-function escapeCsv(v: any) {
-  const s = safeStr(v);
-  if (s.includes('"') || s.includes(",") || s.includes("\n")) {
-    return `"${s.replace(/"/g, '""')}"`;
+function formatLocation(city: string | null, state: string | null) {
+  const c = String(city ?? "").trim();
+  const s = String(state ?? "").trim();
+
+  if (c && s) return `${c}, ${s}`;
+  if (c) return c;
+  if (s) return s;
+  return "No location";
+}
+
+async function requireAdmin() {
+  const session = (await getServerSession(authConfig as any)) as any;
+  const user = session?.user;
+  const email = String(user?.email ?? "").toLowerCase();
+  const role = String(user?.role ?? "").toLowerCase();
+
+  const superEmails = String(process.env.SUPER_ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  const allowed =
+    role === "admin" || role === "super_admin" || superEmails.includes(email);
+
+  if (!allowed) {
+    redirect("/login");
   }
-  return s;
+
+  return session;
 }
 
-function downloadCsv(filename: string, headers: string[], rows: any[]) {
-  const csv =
-    headers.join(",") +
-    "\n" +
-    rows
-      .map((r) => headers.map((h) => escapeCsv((r as any)[h])).join(","))
-      .join("\n");
+async function getCoachNeeds(
+  client: Pool,
+  eventName: string
+): Promise<CoachNeedRow[]> {
+  const sql = `
+    SELECT
+      cn.id AS need_id,
+      cn.event_name,
+      cn.weight_class,
+      cn.age_group,
+      t.teamname AS team_name,
+      t.coach_name,
+      t.contactemail AS contact_email,
+      COALESCE(cn.city, t.city) AS city,
+      COALESCE(cn.state, t.state) AS state,
+      cn.created_at
+    FROM public.coach_needs cn
+    LEFT JOIN public.teams t
+      ON t.userid = cn.coach_user_id
+    WHERE LOWER(TRIM(cn.event_name)) = LOWER(TRIM($1))
+    ORDER BY cn.created_at DESC NULLS LAST, cn.id DESC
+  `;
 
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const res = await client.query(sql, [eventName]);
+  return res.rows;
 }
 
-/**
- * Convert slug -> key (what the API uses)
- * "cheesehead-duals" -> "cheesehead duals"
- * + strips punctuation to match backend normalization tighter
- */
-function slugToEventKey(slug: string) {
-  return String(slug ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/-/g, " ")
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+async function getAthleteInterests(
+  client: Pool,
+  eventName: string
+): Promise<AthleteInterestRow[]> {
+  const sql = `
+    SELECT
+      wi.id AS interest_id,
+      wi.event_name,
+      wi.weight_class,
+      wi.age_group,
+      TRIM(COALESCE(a.firstname, '') || ' ' || COALESCE(a.lastname, '')) AS athlete_name,
+      NULL::text AS parent_name,
+      a.parent_email,
+      a.city,
+      a.state,
+      wi.created_at
+    FROM public.wrestler_interests wi
+    LEFT JOIN public.athletes a
+      ON a.athleteid = wi.wrestler_id
+    WHERE LOWER(TRIM(wi.event_name)) = LOWER(TRIM($1))
+    ORDER BY wi.created_at DESC NULLS LAST, wi.id DESC
+  `;
+
+  const res = await client.query(sql, [eventName]);
+  return res.rows;
 }
 
-export default function AdminEventDetailsPage() {
-  // Folder param is [eventName] (treat it as a slug)
-  const params = useParams<{ eventName: string }>();
-  const eventSlug = decodeURIComponent(params.eventName || "");
-  const eventKey = slugToEventKey(eventSlug);
+async function getMatches(
+  client: Pool,
+  eventName: string
+): Promise<MatchRow[]> {
+  const sql = `
+    SELECT
+      m.id AS match_id,
+      COALESCE(wi.event_name, cn.event_name) AS event_name,
+      m.status,
+      TRIM(COALESCE(a.firstname, '') || ' ' || COALESCE(a.lastname, '')) AS athlete_name,
+      t.teamname AS team_name,
+      t.coach_name,
+      m.created_at
+    FROM public.matches m
+    LEFT JOIN public.wrestler_interests wi
+      ON wi.id = m.wrestler_interest_id
+    LEFT JOIN public.coach_needs cn
+      ON cn.id = m.coach_need_id
+    LEFT JOIN public.athletes a
+      ON a.athleteid = wi.wrestler_id
+    LEFT JOIN public.teams t
+      ON t.userid = cn.coach_user_id
+    WHERE LOWER(TRIM(COALESCE(wi.event_name, cn.event_name))) = LOWER(TRIM($1))
+    ORDER BY m.created_at DESC NULLS LAST, m.id DESC
+  `;
 
-  const [tab, setTab] = useState<"needs" | "interests">("needs");
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const res = await client.query(sql, [eventName]);
+  return res.rows;
+}
 
-  const [eventTitle, setEventTitle] = useState<string>("");
-  const [needs, setNeeds] = useState<NeedRow[]>([]);
-  const [interests, setInterests] = useState<InterestRow[]>([]);
+function badgeStyle(status: string | null): React.CSSProperties {
+  const s = String(status ?? "").toLowerCase();
 
-  const [qNeeds, setQNeeds] = useState("");
-  const [qInterests, setQInterests] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      try {
-        setLoading(true);
-        setErr(null);
-
-        const res = await fetch(
-          `/api/admin/analytics/event-details?event_key=${encodeURIComponent(
-            eventKey
-          )}`,
-          { cache: "no-store" }
-        );
-        const data: ApiResponse = await res.json();
-
-        if (!res.ok || !data.ok) {
-          throw new Error((data as any)?.message || "Failed to load");
-        }
-
-        if (!cancelled) {
-          setEventTitle((data as any).event_name || "");
-          setNeeds(Array.isArray((data as any).needs) ? (data as any).needs : []);
-          setInterests(
-            Array.isArray((data as any).interests)
-              ? (data as any).interests
-              : []
-          );
-        }
-      } catch (e: any) {
-        if (!cancelled) setErr(String(e?.message ?? e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    if (eventKey) load();
-
-    return () => {
-      cancelled = true;
+  if (s === "confirmed") {
+    return {
+      display: "inline-block",
+      padding: "4px 8px",
+      borderRadius: 999,
+      background: "rgba(34,197,94,0.16)",
+      color: "#86efac",
+      fontWeight: 700,
+      fontSize: 12,
+      border: "1px solid rgba(34,197,94,0.35)",
     };
-  }, [eventKey]);
+  }
 
-  const openNeeds = useMemo(
-    () => needs.filter((n) => n.is_open !== false),
-    [needs]
-  );
+  if (s === "pending") {
+    return {
+      display: "inline-block",
+      padding: "4px 8px",
+      borderRadius: 999,
+      background: "rgba(250,204,21,0.14)",
+      color: "#fde68a",
+      fontWeight: 700,
+      fontSize: 12,
+      border: "1px solid rgba(250,204,21,0.30)",
+    };
+  }
 
-  const interestsOnly = useMemo(
-    () => interests.filter((i) => !!i.created_at),
-    [interests]
-  );
+  if (s === "declined" || s === "cancelled") {
+    return {
+      display: "inline-block",
+      padding: "4px 8px",
+      borderRadius: 999,
+      background: "rgba(239,68,68,0.14)",
+      color: "#fca5a5",
+      fontWeight: 700,
+      fontSize: 12,
+      border: "1px solid rgba(239,68,68,0.30)",
+    };
+  }
 
-  const uniqueAthletes = useMemo(() => {
-    const ids = interestsOnly
-      .map((i) => i.wrestler_id)
-      .filter((x): x is string | number => x !== null && x !== undefined);
-    return new Set(ids).size;
-  }, [interestsOnly]);
-
-  const needsFiltered = useMemo(() => {
-    const needle = qNeeds.trim().toLowerCase();
-    if (!needle) return needs;
-    return needs.filter((n) => {
-      const hay = [
-        n.team_name,
-        n.age_group,
-        n.weight_class,
-        n.city,
-        n.state,
-        n.notes,
-      ]
-        .map((x) => String(x ?? ""))
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [needs, qNeeds]);
-
-  const interestsFiltered = useMemo(() => {
-    const needle = qInterests.trim().toLowerCase();
-    if (!needle) return interestsOnly;
-    return interestsOnly.filter((i) => {
-      const hay = [
-        i.first_name,
-        i.last_name,
-        i.age_group,
-        i.weight_class,
-        i.city,
-        i.state,
-        i.notes,
-        i.wrestler_id,
-      ]
-        .map((x) => String(x ?? ""))
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [interestsOnly, qInterests]);
-
-  const btn: React.CSSProperties = {
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid #334155",
-    background: "#0b1220",
-    color: "#fff",
-    cursor: "pointer",
-    fontWeight: 800,
+  return {
+    display: "inline-block",
+    padding: "4px 8px",
+    borderRadius: 999,
+    background: "rgba(148,163,184,0.14)",
+    color: "#cbd5e1",
+    fontWeight: 700,
+    fontSize: 12,
+    border: "1px solid rgba(148,163,184,0.25)",
   };
+}
+
+function cardStyle(): React.CSSProperties {
+  return {
+    border: "1px solid #334155",
+    borderRadius: 14,
+    background: "rgba(2,6,23,0.45)",
+    overflow: "hidden",
+  };
+}
+
+function thStyle(): React.CSSProperties {
+  return {
+    textAlign: "left",
+    padding: "10px 12px",
+    color: "#94a3b8",
+    fontWeight: 800,
+    fontSize: 13,
+  };
+}
+
+function tdStyle(): React.CSSProperties {
+  return {
+    padding: "10px 12px",
+    borderTop: "1px solid #334155",
+    color: "#e5e7eb",
+    verticalAlign: "top",
+  };
+}
+
+export default async function AdminEventDetailPage({
+  params,
+}: {
+  params: Params;
+}) {
+  await requireAdmin();
+
+  const rawEventName = decodeURIComponent(params.eventName ?? "").trim();
+  if (!rawEventName) notFound();
+
+  const [coachNeeds, athleteInterests, matches] = await Promise.all([
+    getCoachNeeds(pool, rawEventName),
+    getAthleteInterests(pool, rawEventName),
+    getMatches(pool, rawEventName),
+  ]);
+
+  const totalCoachNeeds = coachNeeds.length;
+  const totalAthleteInterests = athleteInterests.length;
+  const totalMatches = matches.length;
+  const supplyGap = totalCoachNeeds - totalAthleteInterests;
+
+  const exportCoachCsvHref = `/api/admin/export?type=coach-needs&event=${encodeURIComponent(
+    rawEventName
+  )}`;
+  const exportAthleteCsvHref = `/api/admin/export?type=athlete-interests&event=${encodeURIComponent(
+    rawEventName
+  )}`;
+  const exportMatchesCsvHref = `/api/admin/export?type=matches&event=${encodeURIComponent(
+    rawEventName
+  )}`;
 
   return (
-    <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto", color: "#e5e7eb" }}>
-      <div style={{ marginBottom: 12 }}>
-        <Link href={"/admin" as any} style={{ color: "#94a3b8", textDecoration: "none" }}>
-          ← Back to Admin Dashboard
-        </Link>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+    <main
+      style={{
+        padding: 20,
+        maxWidth: 1280,
+        margin: "0 auto",
+        color: "#e5e7eb",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0, color: "#fff" }}>
-            {eventTitle || eventKey || "Event"}
-          </h1>
-          <p style={{ marginTop: 6, color: "#94a3b8" }}>
-            Drilldown: coach needs + athlete interest for this event.
-          </p>
-          <div style={{ color: "#94a3b8", fontSize: 12 }}>
-            Key: <span style={{ color: "#cbd5e1" }}>{eventKey || "—"}</span>
-            {" • "}
-            Needs: <span style={{ color: "#cbd5e1" }}>{loading ? "…" : needs.length}</span>
-            {" • "}
-            Open: <span style={{ color: "#cbd5e1" }}>{loading ? "…" : `${openNeeds.length}/${needs.length}`}</span>
-            {" • "}
-            Interest: <span style={{ color: "#cbd5e1" }}>{loading ? "…" : interestsOnly.length}</span>
-            {" • "}
-            Unique athletes: <span style={{ color: "#cbd5e1" }}>{loading ? "…" : uniqueAthletes}</span>
+          <div style={{ color: "#94a3b8", fontSize: 14, marginBottom: 8 }}>
+            <Link
+              href="/admin"
+              style={{ color: "#94a3b8", textDecoration: "none" }}
+            >
+              Admin
+            </Link>{" "}
+            / <span style={{ color: "#cbd5e1" }}>Event Marketplace</span>
           </div>
+
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 34,
+              fontWeight: 900,
+              color: "#fff",
+            }}
+          >
+            {rawEventName}
+          </h1>
+
+          <p style={{ marginTop: 8, color: "#94a3b8" }}>
+            Coaches looking for athletes, athletes looking for teams, and current
+            match activity for this event.
+          </p>
         </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={() => setTab("needs")}
-            style={{ ...btn, background: tab === "needs" ? "#111827" : "#0b1220" }}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Link
+            href="/admin"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "1px solid #334155",
+              background: "#0b1220",
+              color: "#fff",
+              padding: "10px 14px",
+              borderRadius: 10,
+              textDecoration: "none",
+              fontWeight: 800,
+            }}
           >
-            Coach needs ({needs.length})
-          </button>
+            Back
+          </Link>
 
-          <button
-            onClick={() => setTab("interests")}
-            style={{ ...btn, background: tab === "interests" ? "#111827" : "#0b1220" }}
+          <Link
+            href="/admin/events"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "1px solid #334155",
+              background: "#0b1220",
+              color: "#fff",
+              padding: "10px 14px",
+              borderRadius: 10,
+              textDecoration: "none",
+              fontWeight: 800,
+            }}
           >
-            Athlete interest ({interestsOnly.length})
-          </button>
+            Normalize Events
+          </Link>
         </div>
       </div>
 
-      {err && (
-        <div style={{ marginTop: 16, padding: 12, border: "1px solid #f99", borderRadius: 10, background: "#fff5f5", color: "#111" }}>
-          <b>Error:</b> {err}
+      <section
+        style={{
+          marginTop: 16,
+          display: "grid",
+          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          gap: 12,
+        }}
+      >
+        {[
+          ["Coach needs", totalCoachNeeds],
+          ["Athlete interest", totalAthleteInterests],
+          ["Matches", totalMatches],
+          ["Supply gap", supplyGap],
+        ].map(([label, value]) => (
+          <div
+            key={String(label)}
+            style={{
+              border: "1px solid #334155",
+              borderRadius: 12,
+              padding: 14,
+              background: "rgba(2,6,23,0.35)",
+            }}
+          >
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>{label}</div>
+            <div
+              style={{
+                fontSize: 28,
+                fontWeight: 900,
+                color: "#fff",
+                marginTop: 6,
+              }}
+            >
+              {String(value)}
+            </div>
+          </div>
+        ))}
+      </section>
+
+      <section
+        style={{
+          marginTop: 16,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: 10,
+        }}
+      >
+        <a
+          href={exportCoachCsvHref}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "1px solid #334155",
+            background: "#0b1220",
+            color: "#fff",
+            padding: "10px 14px",
+            borderRadius: 10,
+            textDecoration: "none",
+            fontWeight: 800,
+          }}
+        >
+          Export Coach Needs CSV
+        </a>
+
+        <a
+          href={exportAthleteCsvHref}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "1px solid #334155",
+            background: "#0b1220",
+            color: "#fff",
+            padding: "10px 14px",
+            borderRadius: 10,
+            textDecoration: "none",
+            fontWeight: 800,
+          }}
+        >
+          Export Athlete Interest CSV
+        </a>
+
+        <a
+          href={exportMatchesCsvHref}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "1px solid #334155",
+            background: "#0b1220",
+            color: "#fff",
+            padding: "10px 14px",
+            borderRadius: 10,
+            textDecoration: "none",
+            fontWeight: 800,
+          }}
+        >
+          Export Matches CSV
+        </a>
+      </section>
+
+      <section
+        style={{
+          marginTop: 18,
+          display: "grid",
+          gridTemplateColumns: "1fr",
+          gap: 16,
+        }}
+      >
+        <div style={cardStyle()}>
+          <div
+            style={{
+              padding: 14,
+              borderBottom: "1px solid #334155",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <div>
+              <b style={{ color: "#fff" }}>Coaches looking for athletes</b>
+              <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
+                {coachNeeds.length} need{coachNeeds.length === 1 ? "" : "s"} found
+              </div>
+            </div>
+          </div>
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={thStyle()}>Team</th>
+                  <th style={thStyle()}>Coach</th>
+                  <th style={thStyle()}>Weight</th>
+                  <th style={thStyle()}>Age</th>
+                  <th style={thStyle()}>Location</th>
+                  <th style={thStyle()}>Contact</th>
+                  <th style={thStyle()}>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {coachNeeds.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={tdStyle()}>
+                      <span style={{ color: "#94a3b8" }}>
+                        No coach needs found for this event.
+                      </span>
+                    </td>
+                  </tr>
+                ) : (
+                  coachNeeds.map((row) => (
+                    <tr key={row.need_id}>
+                      <td style={tdStyle()}>
+                        {fmt(row.team_name, "No team profile yet")}
+                      </td>
+                      <td style={tdStyle()}>
+                        {fmt(row.coach_name, "No coach name")}
+                      </td>
+                      <td style={tdStyle()}>{fmt(row.weight_class)}</td>
+                      <td style={tdStyle()}>{fmt(row.age_group)}</td>
+                      <td style={tdStyle()}>
+                        {formatLocation(row.city, row.state)}
+                      </td>
+                      <td style={tdStyle()}>
+                        {fmt(row.contact_email, "No contact email")}
+                      </td>
+                      <td style={tdStyle()}>
+                        {row.created_at
+                          ? new Date(row.created_at).toLocaleString()
+                          : "No timestamp"}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      )}
 
-      {loading ? (
-        <div style={{ marginTop: 16, color: "#94a3b8" }}>Loading…</div>
-      ) : tab === "needs" ? (
-        <section style={{ marginTop: 16, border: "1px solid #334155", borderRadius: 12 }}>
+        <div style={cardStyle()}>
           <div
             style={{
-              padding: 12,
+              padding: 14,
               borderBottom: "1px solid #334155",
               display: "flex",
               justifyContent: "space-between",
-              gap: 12,
-              flexWrap: "wrap",
               alignItems: "center",
+              gap: 10,
             }}
           >
             <div>
-              <b style={{ color: "#fff" }}>Coach needs</b>
+              <b style={{ color: "#fff" }}>Athletes looking for teams</b>
               <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
-                Showing {needsFiltered.length} of {needs.length}
+                {athleteInterests.length} interest
+                {athleteInterests.length === 1 ? "" : "s"} found
               </div>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <input
-                value={qNeeds}
-                onChange={(e) => setQNeeds(e.target.value)}
-                placeholder="Search needs…"
-                style={{
-                  border: "1px solid #334155",
-                  background: "#0b1220",
-                  color: "#fff",
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  minHeight: 36,
-                  width: 220,
-                }}
-              />
-
-              <button
-                style={btn}
-                onClick={() =>
-                  downloadCsv(
-                    `${eventKey || "event"}-coach-needs.csv`,
-                    [
-                      "id",
-                      "team_name",
-                      "age_group",
-                      "weight_class",
-                      "city",
-                      "state",
-                      "is_open",
-                      "notes",
-                      "created_at",
-                    ],
-                    needsFiltered
-                  )
-                }
-              >
-                Export CSV
-              </button>
             </div>
           </div>
 
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ textAlign: "left", color: "#94a3b8" }}>
-                  <th style={{ padding: "8px 10px" }}>Team</th>
-                  <th style={{ padding: "8px 10px" }}>Age</th>
-                  <th style={{ padding: "8px 10px" }}>Weight</th>
-                  <th style={{ padding: "8px 10px" }}>City</th>
-                  <th style={{ padding: "8px 10px" }}>Open</th>
-                  <th style={{ padding: "8px 10px" }}>Notes</th>
+                <tr>
+                  <th style={thStyle()}>Athlete</th>
+                  <th style={thStyle()}>Parent</th>
+                  <th style={thStyle()}>Weight</th>
+                  <th style={thStyle()}>Age</th>
+                  <th style={thStyle()}>Location</th>
+                  <th style={thStyle()}>Contact</th>
+                  <th style={thStyle()}>Created</th>
                 </tr>
               </thead>
-
               <tbody>
-                {needsFiltered.map((n) => (
-                  <tr key={String(n.id)} style={{ borderTop: "1px solid #334155" }}>
-                    <td style={{ padding: "8px 10px", color: "#fff" }}>{n.team_name || "—"}</td>
-                    <td style={{ padding: "8px 10px" }}>{n.age_group || "—"}</td>
-                    <td style={{ padding: "8px 10px" }}>{n.weight_class || "—"}</td>
-                    <td style={{ padding: "8px 10px" }}>
-                      {(n.city || "—") + (n.state ? `, ${n.state}` : "")}
-                    </td>
-                    <td style={{ padding: "8px 10px" }}>{n.is_open === false ? "Closed" : "Open"}</td>
-                    <td style={{ padding: "8px 10px", color: "#cbd5e1" }}>{n.notes || ""}</td>
-                  </tr>
-                ))}
-
-                {needsFiltered.length === 0 && (
+                {athleteInterests.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ padding: 12, color: "#94a3b8" }}>
-                      No coach needs found for this event.
+                    <td colSpan={7} style={tdStyle()}>
+                      <span style={{ color: "#94a3b8" }}>
+                        No athlete interest found for this event.
+                      </span>
                     </td>
                   </tr>
+                ) : (
+                  athleteInterests.map((row) => (
+                    <tr key={row.interest_id}>
+                      <td style={tdStyle()}>
+                        {fmt(row.athlete_name, "Wrestler profile missing")}
+                      </td>
+                      <td style={tdStyle()}>
+                        {fmt(row.parent_name, "No parent name")}
+                      </td>
+                      <td style={tdStyle()}>{fmt(row.weight_class)}</td>
+                      <td style={tdStyle()}>{fmt(row.age_group)}</td>
+                      <td style={tdStyle()}>
+                        {formatLocation(row.city, row.state)}
+                      </td>
+                      <td style={tdStyle()}>
+                        {fmt(row.parent_email, "No parent email")}
+                      </td>
+                      <td style={tdStyle()}>
+                        {row.created_at
+                          ? new Date(row.created_at).toLocaleString()
+                          : "No timestamp"}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
           </div>
-        </section>
-      ) : (
-        <section style={{ marginTop: 16, border: "1px solid #334155", borderRadius: 12 }}>
+        </div>
+
+        <div style={cardStyle()}>
           <div
             style={{
-              padding: 12,
+              padding: 14,
               borderBottom: "1px solid #334155",
               display: "flex",
               justifyContent: "space-between",
-              gap: 12,
-              flexWrap: "wrap",
               alignItems: "center",
+              gap: 10,
             }}
           >
             <div>
-              <b style={{ color: "#fff" }}>Athlete interest</b>
+              <b style={{ color: "#fff" }}>Matches for this event</b>
               <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
-                Showing {interestsFiltered.length} of {interestsOnly.length} • Unique athletes: {uniqueAthletes}
+                {matches.length} match{matches.length === 1 ? "" : "es"} found
               </div>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <input
-                value={qInterests}
-                onChange={(e) => setQInterests(e.target.value)}
-                placeholder="Search interest…"
-                style={{
-                  border: "1px solid #334155",
-                  background: "#0b1220",
-                  color: "#fff",
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  minHeight: 36,
-                  width: 220,
-                }}
-              />
-
-              <button
-                style={btn}
-                onClick={() =>
-                  downloadCsv(
-                    `${eventKey || "event"}-athlete-interest.csv`,
-                    [
-                      "id",
-                      "wrestler_id",
-                      "first_name",
-                      "last_name",
-                      "age_group",
-                      "weight_class",
-                      "city",
-                      "state",
-                      "notes",
-                      "created_at",
-                    ],
-                    interestsFiltered
-                  )
-                }
-              >
-                Export CSV
-              </button>
             </div>
           </div>
 
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ textAlign: "left", color: "#94a3b8" }}>
-                  <th style={{ padding: "8px 10px" }}>Athlete</th>
-                  <th style={{ padding: "8px 10px" }}>Age</th>
-                  <th style={{ padding: "8px 10px" }}>Weight</th>
-                  <th style={{ padding: "8px 10px" }}>Location</th>
-                  <th style={{ padding: "8px 10px" }}>Submitted</th>
+                <tr>
+                  <th style={thStyle()}>Athlete</th>
+                  <th style={thStyle()}>Team</th>
+                  <th style={thStyle()}>Coach</th>
+                  <th style={thStyle()}>Status</th>
+                  <th style={thStyle()}>Created</th>
                 </tr>
               </thead>
-
               <tbody>
-                {interestsFiltered.map((i) => (
-                  <tr key={String(i.id)} style={{ borderTop: "1px solid #334155" }}>
-                    <td style={{ padding: "8px 10px", color: "#fff" }}>
-                      {`${i.first_name ?? ""} ${i.last_name ?? ""}`.trim() ||
-                        `Wrestler #${i.wrestler_id ?? "?"}`}
-                    </td>
-                    <td style={{ padding: "8px 10px" }}>{i.age_group || "—"}</td>
-                    <td style={{ padding: "8px 10px" }}>{i.weight_class || "—"}</td>
-                    <td style={{ padding: "8px 10px" }}>
-                      {(i.city || "—") + (i.state ? `, ${i.state}` : "")}
-                    </td>
-                    <td style={{ padding: "8px 10px", color: "#cbd5e1" }}>
-                      {i.created_at ? new Date(i.created_at).toLocaleString() : "—"}
-                    </td>
-                  </tr>
-                ))}
-
-                {interestsFiltered.length === 0 && (
+                {matches.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ padding: 12, color: "#94a3b8" }}>
-                      No athlete interest found for this event.
+                    <td colSpan={5} style={tdStyle()}>
+                      <span style={{ color: "#94a3b8" }}>
+                        No matches found for this event.
+                      </span>
                     </td>
                   </tr>
+                ) : (
+                  matches.map((row) => (
+                    <tr key={row.match_id}>
+                      <td style={tdStyle()}>
+                        {fmt(row.athlete_name, "Wrestler profile missing")}
+                      </td>
+                      <td style={tdStyle()}>
+                        {fmt(row.team_name, "No team profile yet")}
+                      </td>
+                      <td style={tdStyle()}>
+                        {fmt(row.coach_name, "No coach name")}
+                      </td>
+                      <td style={tdStyle()}>
+                        <span style={badgeStyle(row.status)}>
+                          {fmt(row.status)}
+                        </span>
+                      </td>
+                      <td style={tdStyle()}>
+                        {row.created_at
+                          ? new Date(row.created_at).toLocaleString()
+                          : "No timestamp"}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
           </div>
-        </section>
-      )}
+        </div>
+      </section>
     </main>
   );
 }

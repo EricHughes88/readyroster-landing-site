@@ -9,49 +9,53 @@ function jsonError(message: string, status = 500, details?: unknown) {
 }
 
 /* -------------------------------------------
-   GET: Full admin athlete profile (existing)
+   GET: Full admin athlete profile
+   ✅ Uses public.wrestlers to match admin_athletes_directory
 -------------------------------------------- */
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const athleteId = Number(params.id);
+  const wrestlerId = Number(params.id);
 
-  if (!Number.isFinite(athleteId) || athleteId <= 0) {
-    return jsonError("Invalid athlete id", 400, { athleteId });
+  if (!Number.isFinite(wrestlerId) || wrestlerId <= 0) {
+    return jsonError("Invalid athlete id", 400, { wrestlerId });
   }
 
   const client = await pool.connect();
   try {
-    // Profile comes from your VIEW and joins to users for parent info.
-    // IMPORTANT: your users table columns are: firstname / lastname / email / phone
+    // Profile comes from the same source as admin_athletes_directory
     const profileRes = await client.query(
       `
       SELECT
-        d.id,
-        d.first_name,
-        d.last_name,
-        d.city,
-        d.state,
-        d.dob,
-        d.parent_user_id,
-
+        w.id,
+        w.first_name,
+        w.last_name,
+        w.city,
+        w.state,
+        w.dob,
+        w.parent_user_id,
         u.firstname AS parent_firstname,
-        u.lastname  AS parent_lastname,
-        u.email     AS parent_email,
-        u.phone     AS parent_phone
-      FROM public.admin_athletes_directory d
+        u.lastname AS parent_lastname,
+        u.email AS parent_email,
+        u.phone AS parent_phone,
+        NULL::text AS created_at
+      FROM public.wrestlers w
       LEFT JOIN public.users u
-        ON u.id = d.parent_user_id
-      WHERE d.id = $1
+        ON u.id = w.parent_user_id
+      WHERE w.id = $1
       LIMIT 1
       `,
-      [athleteId]
+      [wrestlerId]
     );
 
     const profile = profileRes.rows[0] ?? null;
 
-    // Interests
+    if (!profile) {
+      return jsonError("Athlete not found", 404, { wrestlerId });
+    }
+
+    // Interests now line up with wrestlers.id
     const interestsRes = await client.query(
       `
       SELECT
@@ -66,47 +70,47 @@ export async function GET(
       WHERE wrestler_id = $1
       ORDER BY created_at DESC NULLS LAST
       `,
-      [athleteId]
+      [wrestlerId]
     );
 
-    // Matches (best-effort; schema may vary)
-    let matches: any[] = [];
-    try {
-      const matchesRes = await client.query(
-        `
-        SELECT
-          m.id,
-          m.status,
-          COALESCE(n.event_name, i.event_name) AS event_name,
-          COALESCE(n.age_group, i.age_group)   AS age_group,
-          COALESCE(n.weight_class, i.weight_class) AS weight_class,
-          t.team_name,
-          t.coach_name AS team_coach_name,
-          m.created_at
-        FROM public.matches m
-        LEFT JOIN public.coach_needs n ON n.id = m.need_id
-        LEFT JOIN public.wrestler_interests i ON i.id = m.interest_id
-        LEFT JOIN public.teams t ON t.id = m.team_id
-        WHERE m.wrestler_id = $1
-        ORDER BY m.created_at DESC NULLS LAST
-        `,
-        [athleteId]
-      );
-      matches = matchesRes.rows ?? [];
-    } catch {
-      matches = [];
-    }
+    // Matches using your real schema:
+    // matches.wrestler_interest_id -> wrestler_interests.id
+    // matches.coach_need_id -> coach_needs.id
+    // coach_needs.coach_user_id -> teams.userid
+    const matchesRes = await client.query(
+      `
+      SELECT
+        m.id,
+        m.status,
+        COALESCE(cn.event_name, wi.event_name) AS event_name,
+        COALESCE(cn.age_group, wi.age_group) AS age_group,
+        COALESCE(cn.weight_class, wi.weight_class) AS weight_class,
+        t.teamname AS team_name,
+        t.coach_name AS team_coach_name,
+        m.created_at
+      FROM public.matches m
+      LEFT JOIN public.wrestler_interests wi
+        ON wi.id = m.wrestler_interest_id
+      LEFT JOIN public.coach_needs cn
+        ON cn.id = m.coach_need_id
+      LEFT JOIN public.teams t
+        ON t.userid = cn.coach_user_id
+      WHERE wi.wrestler_id = $1
+      ORDER BY m.created_at DESC NULLS LAST
+      `,
+      [wrestlerId]
+    );
 
     return NextResponse.json({
       ok: true,
-      athleteId,
+      athleteId: wrestlerId,
       profile,
       interests: interestsRes.rows ?? [],
-      matches,
+      matches: matchesRes.rows ?? [],
     });
   } catch (e: any) {
     return jsonError("Failed to load athlete admin profile", 500, {
-      athleteId,
+      wrestlerId,
       pg: { message: e?.message, code: e?.code },
     });
   } finally {
@@ -115,17 +119,17 @@ export async function GET(
 }
 
 /* -------------------------------------------
-   PATCH: Update editable athlete fields
-   (first_name, last_name, city, state, dob)
+   PATCH: Update editable wrestler fields
+   ✅ Uses public.wrestlers
 -------------------------------------------- */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const athleteId = Number(params.id);
+  const wrestlerId = Number(params.id);
 
-  if (!Number.isFinite(athleteId) || athleteId <= 0) {
-    return jsonError("Invalid athlete id", 400, { athleteId });
+  if (!Number.isFinite(wrestlerId) || wrestlerId <= 0) {
+    return jsonError("Invalid athlete id", 400, { wrestlerId });
   }
 
   let body: any = null;
@@ -135,7 +139,6 @@ export async function PATCH(
     return jsonError("Invalid JSON body", 400);
   }
 
-  // Normalize empty strings -> NULL
   const normStr = (v: any) => {
     if (v === null || v === undefined) return null;
     if (typeof v !== "string") return v;
@@ -143,25 +146,29 @@ export async function PATCH(
     return t === "" ? null : t;
   };
 
-  // DOB should be sent as "YYYY-MM-DD" (or null)
   const normDob = (v: any) => {
     const s = normStr(v);
     if (!s) return null;
     return s;
   };
 
-  // Allowed public.athletes columns
-  const allowed = ["first_name", "last_name", "city", "state", "dob"] as const;
+  const fieldMap: Record<string, string> = {
+    first_name: "first_name",
+    last_name: "last_name",
+    city: "city",
+    state: "state",
+    dob: "dob",
+  };
 
   const updates: Record<string, any> = {};
-  for (const k of allowed) {
-    if (Object.prototype.hasOwnProperty.call(body, k)) {
-      if (k === "dob") updates[k] = normDob(body[k]);
-      else updates[k] = normStr(body[k]);
+
+  for (const [apiField, dbField] of Object.entries(fieldMap)) {
+    if (Object.prototype.hasOwnProperty.call(body, apiField)) {
+      updates[dbField] =
+        apiField === "dob" ? normDob(body[apiField]) : normStr(body[apiField]);
     }
   }
 
-  // Normalize state to uppercase if provided
   if (Object.prototype.hasOwnProperty.call(updates, "state") && updates.state) {
     updates.state = String(updates.state).trim().toUpperCase();
   }
@@ -177,13 +184,20 @@ export async function PATCH(
   const client = await pool.connect();
   try {
     const q = `
-      UPDATE public.athletes
+      UPDATE public.wrestlers
       SET ${setSql}
       WHERE id = $${keys.length + 1}
-      RETURNING id, first_name, last_name, city, state, dob, parent_user_id;
+      RETURNING
+        id,
+        first_name,
+        last_name,
+        city,
+        state,
+        dob,
+        parent_user_id
     `;
 
-    const r = await client.query(q, [...values, athleteId]);
+    const r = await client.query(q, [...values, wrestlerId]);
 
     if (r.rowCount === 0) {
       return jsonError("Athlete not found", 404);
@@ -192,7 +206,7 @@ export async function PATCH(
     return NextResponse.json({ ok: true, athlete: r.rows[0] });
   } catch (e: any) {
     return jsonError("Failed to update athlete", 500, {
-      athleteId,
+      wrestlerId,
       pg: { message: e?.message, code: e?.code },
     });
   } finally {

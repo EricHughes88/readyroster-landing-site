@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import type { Route } from "next"; // ✅ typedRoutes fix
+import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
 
 type OverviewResponse = {
@@ -22,10 +22,8 @@ type OverviewResponse = {
 };
 
 type TractionRow = {
-  // some APIs might return 'event' and/or 'event_name'
   event?: string;
   event_name?: string;
-
   coach_needs: number;
   unique_coaches: number;
   athlete_interest: number;
@@ -87,7 +85,6 @@ function displayEventName(r: TractionRow) {
   return String(r.event_name ?? r.event ?? "").trim() || "Unknown event";
 }
 
-/** Tiny sparkline (SVG polyline) */
 function Sparkline({
   values,
   height = 44,
@@ -142,18 +139,14 @@ export default function AdminDashboardPage() {
   const [traction, setTraction] = useState<TractionRow[]>([]);
   const [feed, setFeed] = useState<FeedItem[]>([]);
 
-  // IMPORTANT: set this client-side only to avoid hydration mismatch
   const [updatedAt, setUpdatedAt] = useState<string>("");
 
-  // ✅ Super admin gating for UI button
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
-  // 🔎 traction controls
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("coach_needs");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
 
-  // ✅ Easiest: put your email(s) here too (must match your env):
   const SUPER_EMAILS = ["eric@nuwaycombat.com"].map((s) => s.toLowerCase());
 
   async function fetchSessionUser(): Promise<SessionUser | null> {
@@ -197,12 +190,15 @@ export default function AdminDashboardPage() {
         const tr: TractionResponse = await trRes.json();
         const fd: FeedResponse = await fdRes.json();
 
-        if (!ovRes.ok || !ov?.ok)
+        if (!ovRes.ok || !ov?.ok) {
           throw new Error((ov as any)?.message || "Failed overview");
-        if (!trRes.ok || !tr?.ok)
+        }
+        if (!trRes.ok || !tr?.ok) {
           throw new Error((tr as any)?.message || "Failed traction");
-        if (!fdRes.ok || !fd?.ok)
+        }
+        if (!fdRes.ok || !fd?.ok) {
           throw new Error((fd as any)?.message || "Failed feed");
+        }
 
         if (cancelled) return;
 
@@ -214,7 +210,6 @@ export default function AdminDashboardPage() {
           "events",
           "traction",
         ]).map((r) => ({
-          // normalize numbers defensively
           ...r,
           coach_needs: toNum(r.coach_needs),
           unique_coaches: toNum(r.unique_coaches),
@@ -290,7 +285,6 @@ export default function AdminDashboardPage() {
     }
   }
 
-  // Shared “button” style (prevents “invisible” / tiny links)
   const navBtn: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
@@ -350,7 +344,6 @@ export default function AdminDashboardPage() {
           </p>
         </div>
 
-        {/* ✅ RIGHT SIDE ACTIONS */}
         <div
           style={{
             display: "flex",
@@ -360,7 +353,6 @@ export default function AdminDashboardPage() {
             justifyContent: "flex-end",
           }}
         >
-          {/* ✅ Directory buttons */}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <Link
               href={"/admin/athletes" as Route}
@@ -378,7 +370,6 @@ export default function AdminDashboardPage() {
               Coaches DB
             </Link>
 
-            {/* ✅ Event Intelligence */}
             <Link
               href={"/admin/insights" as Route}
               prefetch={false}
@@ -387,7 +378,6 @@ export default function AdminDashboardPage() {
               Event Intelligence
             </Link>
 
-            {/* ✅ NEW: Normalize Events (rename/merge tool) */}
             <Link
               href={"/admin/events" as Route}
               prefetch={false}
@@ -396,7 +386,6 @@ export default function AdminDashboardPage() {
               Normalize Events
             </Link>
 
-            {/* ✅ ONLY SUPER ADMIN sees Admin Activity + Manage Admins */}
             {isSuperAdmin ? (
               <>
                 <Link
@@ -407,7 +396,6 @@ export default function AdminDashboardPage() {
                   Admin Activity
                 </Link>
 
-                {/* ✅ Manage Admins (promote/demote users) */}
                 <Link
                   href={"/admin/admins" as Route}
                   prefetch={false}
@@ -419,7 +407,6 @@ export default function AdminDashboardPage() {
             ) : null}
           </div>
 
-          {/* Range selector */}
           <span style={{ color: "#94a3b8" }}>Range:</span>
           <select
             value={days}
@@ -456,7 +443,6 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* Stat cards */}
       <section
         style={{
           marginTop: 16,
@@ -496,7 +482,6 @@ export default function AdminDashboardPage() {
         ))}
       </section>
 
-      {/* Trend charts */}
       <section
         style={{
           marginTop: 14,
@@ -554,7 +539,6 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* Top events by traction */}
       <section
         style={{
           marginTop: 14,
@@ -693,9 +677,8 @@ export default function AdminDashboardPage() {
                     style={{ borderTop: "1px solid #334155" }}
                   >
                     <td style={{ padding: "10px 12px" }}>
-                      {/* ✅ Send to Normalize Events (you don't have /admin/events/[slug] yet) */}
                       <Link
-                        href={"/admin/events" as Route}
+                        href={`/admin/events/${encodeURIComponent(name)}` as Route}
                         prefetch={false}
                         style={{ color: "#fff", textDecoration: "underline" }}
                       >
@@ -733,7 +716,6 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* Recent activity feed */}
       <section
         style={{
           marginTop: 14,

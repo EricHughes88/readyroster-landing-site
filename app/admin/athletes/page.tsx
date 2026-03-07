@@ -1,4 +1,3 @@
-// app/admin/athletes/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -62,7 +61,9 @@ function exportCsv(rows: AthleteRow[]) {
     ...rows.map((r) => headers.map((h) => escapeCsv((r as any)[h])).join(",")),
   ];
 
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob([lines.join("\n")], {
+    type: "text/csv;charset=utf-8;",
+  });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");
@@ -118,14 +119,15 @@ export default function AdminAthletesDbPage() {
           ? `?state=${encodeURIComponent(stateFilter)}`
           : "";
 
-      const res = await fetch(`/api/admin/athletes${qs}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/athletes${qs}`, {
+        cache: "no-store",
+      });
       const data = await res.json();
 
       if (!res.ok || !data?.ok) {
         throw new Error(data?.message || "Failed to load athletes");
       }
 
-      // Normalize payload keys (athletes/rows/data/items)
       const list = pickArray<AthleteRow>(data, [
         "athletes",
         "rows",
@@ -145,15 +147,21 @@ export default function AdminAthletesDbPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateFilter]);
 
-  // Distinct states (for dropdown options)
-  const states = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rows) {
-      const st = (r.state || "").trim();
-      if (st) s.add(st);
-    }
-    return Array.from(s).sort();
+  const stateCounts = useMemo(() => {
+    const map = new Map<string, number>();
+
+    rows.forEach((r) => {
+      const st = (r.state || "").trim().toUpperCase();
+      if (!st) return;
+      map.set(st, (map.get(st) || 0) + 1);
+    });
+
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([state, count]) => ({ state, count }));
   }, [rows]);
+
+  const states = useMemo(() => stateCounts.map((x) => x.state), [stateCounts]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -165,7 +173,10 @@ export default function AdminAthletesDbPage() {
       const state = (r.state || "").toLowerCase();
       const dob = (r.dob || "").toLowerCase();
 
-      const pName = fmtName(r.parent_firstname || "", r.parent_lastname || "").toLowerCase();
+      const pName = fmtName(
+        r.parent_firstname || "",
+        r.parent_lastname || ""
+      ).toLowerCase();
       const pEmail = (r.parent_email || "").toLowerCase();
       const pPhone = (r.parent_phone || "").toLowerCase();
 
@@ -215,11 +226,12 @@ export default function AdminAthletesDbPage() {
       });
 
       const data = await res.json();
-      if (!res.ok || !data?.ok) throw new Error(data?.message || "Failed to save");
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.message || "Failed to save");
+      }
 
       const updated = data.athlete as AthleteRow;
 
-      // Update row locally (no refresh)
       setRows((prev) =>
         prev.map((r) =>
           r.id === updated.id
@@ -247,7 +259,6 @@ export default function AdminAthletesDbPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-6xl px-6 py-8">
-        {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight">
@@ -274,7 +285,6 @@ export default function AdminAthletesDbPage() {
             </div>
           </div>
 
-          {/* Controls */}
           <div className="flex flex-col gap-2 sm:items-end">
             <div className="flex flex-wrap gap-2">
               <select
@@ -312,7 +322,6 @@ export default function AdminAthletesDbPage() {
           </div>
         </div>
 
-        {/* ✅ State summary row (replaces tile grid) */}
         <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-slate-200">State summary</h2>
@@ -333,9 +342,37 @@ export default function AdminAthletesDbPage() {
               )}
             </div>
           </div>
+
+          {!loading && stateCounts.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                onClick={() => setStateFilter("ALL")}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                  stateFilter === "ALL"
+                    ? "border-red-500 bg-red-600 text-white"
+                    : "border-slate-700 bg-slate-900/60 text-slate-200 hover:bg-slate-900"
+                }`}
+              >
+                All ({rows.length})
+              </button>
+
+              {stateCounts.map(({ state, count }) => (
+                <button
+                  key={state}
+                  onClick={() => setStateFilter(state)}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                    stateFilter === state
+                      ? "border-red-500 bg-red-600 text-white"
+                      : "border-slate-700 bg-slate-900/60 text-slate-200 hover:bg-slate-900"
+                  }`}
+                >
+                  {state} ({count})
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Directory table */}
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/40">
           <div className="border-b border-slate-800 px-4 py-3">
             <h2 className="text-sm font-semibold text-slate-200">Directory</h2>
@@ -368,25 +405,35 @@ export default function AdminAthletesDbPage() {
                   {filtered.map((r) => (
                     <tr key={r.id} className="hover:bg-slate-900/30">
                       <td className="px-4 py-3 font-medium">
-                        {fmtName(r.first_name, r.last_name)}
+                        <Link
+                          href={`/admin/athletes/${r.id}` as Route}
+                          className="text-white underline decoration-slate-500 underline-offset-2 hover:text-red-300"
+                        >
+                          {fmtName(r.first_name, r.last_name)}
+                        </Link>
                         <div className="text-xs text-slate-400">
                           AthleteID: {r.id}
                         </div>
                       </td>
+
                       <td className="px-4 py-3">{r.city || "—"}</td>
                       <td className="px-4 py-3">{r.state || "—"}</td>
                       <td className="px-4 py-3">{fmtDob(r.dob)}</td>
+
                       <td className="px-4 py-3">
                         {fmtName(r.parent_firstname || "", r.parent_lastname || "")}
                         <div className="text-xs text-slate-400">
                           ParentUserID: {r.parent_user_id ?? "—"}
                         </div>
                       </td>
+
                       <td className="px-4 py-3">{r.parent_email || "—"}</td>
                       <td className="px-4 py-3">{r.parent_phone || "—"}</td>
+
                       <td className="px-4 py-3 text-xs text-slate-300">
                         {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
                       </td>
+
                       <td className="px-4 py-3">
                         <button
                           onClick={() => openEdit(r)}
@@ -403,7 +450,6 @@ export default function AdminAthletesDbPage() {
           )}
         </div>
 
-        {/* Edit Modal */}
         {editOpen && editForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
             <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-950 p-5">
