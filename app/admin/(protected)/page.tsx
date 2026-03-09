@@ -371,6 +371,14 @@ export default function AdminDashboardPage() {
             </Link>
 
             <Link
+              href={"/admin/match-radar" as Route}
+              prefetch={false}
+              style={navBtn}
+            >
+              Match Radar
+            </Link>
+
+            <Link
               href={"/admin/insights" as Route}
               prefetch={false}
               style={navBtn}
