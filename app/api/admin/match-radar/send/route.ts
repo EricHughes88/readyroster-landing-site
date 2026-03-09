@@ -82,8 +82,6 @@ export async function POST(req: NextRequest) {
           TRIM(COALESCE(w.first_name, '') || ' ' || COALESCE(w.last_name, '')),
           ''
         ) AS wrestler_name,
-        w.city AS athlete_city,
-        w.state AS athlete_state,
 
         NULLIF(
           TRIM(COALESCE(u_parent.firstname, '') || ' ' || COALESCE(u_parent.lastname, '')),
@@ -145,7 +143,14 @@ export async function POST(req: NextRequest) {
     let emailedParent = Boolean(pair.emailed_parent);
     let emailedCoach = Boolean(pair.emailed_coach);
 
+    let parentAttempted = false;
+    let coachAttempted = false;
+    let parentError: string | null = null;
+    let coachError: string | null = null;
+
     if (!emailedParent && pair.parent_email) {
+      parentAttempted = true;
+
       const tpl = matchFoundParentEmail({
         parentName: pair.parent_name,
         wrestlerName: pair.wrestler_name || "your wrestler",
@@ -174,11 +179,16 @@ export async function POST(req: NextRequest) {
           [wrestlerInterestId, coachNeedId]
         );
       } else {
+        parentError = String(res.error || "Parent email failed");
         console.error("Manual send parent email failed:", res.error);
       }
+    } else if (!pair.parent_email) {
+      parentError = "Missing parent email";
     }
 
     if (!emailedCoach && pair.coach_email) {
+      coachAttempted = true;
+
       const tpl = matchFoundCoachEmail({
         coachName: pair.coach_name,
         wrestlerName: pair.wrestler_name || "athlete",
@@ -206,14 +216,41 @@ export async function POST(req: NextRequest) {
           [wrestlerInterestId, coachNeedId]
         );
       } else {
+        coachError = String(res.error || "Coach email failed");
         console.error("Manual send coach email failed:", res.error);
       }
+    } else if (!pair.coach_email) {
+      coachError = "Missing coach email";
+    }
+
+    const anyActuallySent =
+      (parentAttempted && emailedParent) || (coachAttempted && emailedCoach);
+
+    if (!anyActuallySent) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "No emails were sent.",
+          emailed_parent: emailedParent,
+          emailed_coach: emailedCoach,
+          parent_error: parentError,
+          coach_error: coachError,
+          parent_email: pair.parent_email,
+          coach_email: pair.coach_email,
+        },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({
       ok: true,
+      message: "Outreach sent.",
       emailed_parent: emailedParent,
       emailed_coach: emailedCoach,
+      parent_error: parentError,
+      coach_error: coachError,
+      parent_email: pair.parent_email,
+      coach_email: pair.coach_email,
     });
   } catch (err: any) {
     console.error("admin manual outreach POST error:", err);
