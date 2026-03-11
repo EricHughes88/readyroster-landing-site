@@ -32,13 +32,28 @@ function normalizeRole(raw: unknown): RRRole {
   return "Parent";
 }
 
+function getSuperAdminEmails(): string[] {
+  return String(process.env.SUPER_ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isSuperAdminEmail(email: unknown): boolean {
+  const normalized = String(email ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  return getSuperAdminEmails().includes(normalized);
+}
+
 function getIpFromHeaders(headers?: any): string | null {
   const fwd = headers?.get?.("x-forwarded-for") ?? headers?.["x-forwarded-for"];
   if (typeof fwd === "string" && fwd.trim()) {
     return fwd.split(",")[0]?.trim() || null;
   }
   const real =
-    headers?.get?.("x-real-ip") ?? headers?.["x-real-ip"] ?? headers?.get?.("cf-connecting-ip");
+    headers?.get?.("x-real-ip") ??
+    headers?.["x-real-ip"] ??
+    headers?.get?.("cf-connecting-ip");
   return typeof real === "string" && real.trim() ? real.trim() : null;
 }
 
@@ -91,21 +106,20 @@ export const authOptions: NextAuthOptions = {
 
           const u = rows?.[0];
           if (!u?.password_hash) {
-            // We cannot log unknown-user attempts into admin_audit_log because it requires admin_user_id.
             return null;
           }
 
           const role = normalizeRole(u.role);
+          const isSuperAdmin = isSuperAdminEmail(u.email);
 
           const ok = await bcrypt.compare(password, String(u.password_hash));
           if (!ok) {
-            // ✅ Optional: log failed attempt ONLY if this email belongs to an Admin user
             if (role === "Admin") {
               try {
                 await logAdminEvent({
                   adminUserId: Number(u.id),
                   action: "admin_login_failed_bad_password",
-                  metadata: { email },
+                  metadata: { email, isSuperAdmin },
                   ip,
                   userAgent,
                 });
@@ -119,13 +133,12 @@ export const authOptions: NextAuthOptions = {
           const built = [u.firstname, u.lastname].filter(Boolean).join(" ").trim();
           const niceName = u.name ?? (built || null);
 
-          // ✅ Log successful admin login
           if (role === "Admin") {
             try {
               await logAdminEvent({
                 adminUserId: Number(u.id),
                 action: "admin_login_success",
-                metadata: { email },
+                metadata: { email, isSuperAdmin },
                 ip,
                 userAgent,
               });
@@ -134,12 +147,14 @@ export const authOptions: NextAuthOptions = {
             }
           }
 
-          const out: User & { role?: RRRole } = {
+          const out: User & { role?: RRRole; isSuperAdmin?: boolean } = {
             id: String(u.id),
             email: u.email,
             name: niceName,
             role,
+            isSuperAdmin,
           };
+
           return out;
         } catch (err) {
           console.error("[auth.authorize] error", err);
@@ -153,6 +168,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         (token as any).uid = String((user as any).id ?? "");
         (token as any).role = (user as any).role ?? "Parent";
+        (token as any).isSuperAdmin = Boolean((user as any).isSuperAdmin);
         token.name = user.name ?? null;
         token.email = user.email ?? null;
       }
@@ -162,9 +178,11 @@ export const authOptions: NextAuthOptions = {
       session.user = {
         id: String((token as any)?.uid ?? ""),
         role: ((token as any)?.role as RRRole) ?? "Parent",
+        isSuperAdmin: Boolean((token as any)?.isSuperAdmin),
         name: token?.name ?? null,
         email: token?.email ?? null,
-      } as User & { role?: RRRole };
+      } as User & { role?: RRRole; isSuperAdmin?: boolean };
+
       return session;
     },
   },

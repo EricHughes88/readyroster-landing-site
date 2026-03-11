@@ -62,6 +62,7 @@ type SessionUser = {
   email?: string | null;
   role?: string | null;
   name?: string | null;
+  isSuperAdmin?: boolean;
 };
 
 function clampDays(n: number) {
@@ -142,12 +143,11 @@ export default function AdminDashboardPage() {
   const [updatedAt, setUpdatedAt] = useState<string>("");
 
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
 
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("coach_needs");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
-
-  const SUPER_EMAILS = ["eric@nuwaycombat.com"].map((s) => s.toLowerCase());
 
   async function fetchSessionUser(): Promise<SessionUser | null> {
     try {
@@ -163,8 +163,18 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     (async () => {
       const u = await fetchSessionUser();
+      setSessionUser(u);
+
+      const superEmails = [
+        "eric@nuwaycombat.com",
+        "brittaustin1031@gmail.com",
+      ];
+
       const email = String(u?.email ?? "").toLowerCase();
-      setIsSuperAdmin(Boolean(email && SUPER_EMAILS.includes(email)));
+
+      setIsSuperAdmin(
+        Boolean(u?.isSuperAdmin) || superEmails.includes(email)
+      );
     })();
   }, []);
 
@@ -329,19 +339,46 @@ export default function AdminDashboardPage() {
         }}
       >
         <div>
-          <h1
-            style={{
-              fontSize: 34,
-              fontWeight: 900,
-              margin: 0,
-              color: "#fff",
-            }}
-          >
-            Admin Dashboard
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <h1
+              style={{
+                fontSize: 34,
+                fontWeight: 900,
+                margin: 0,
+                color: "#fff",
+              }}
+            >
+              Admin Dashboard
+            </h1>
+
+            {isSuperAdmin ? (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  border: "1px solid #166534",
+                  background: "rgba(20,83,45,0.25)",
+                  color: "#86efac",
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                Super Admin
+              </span>
+            ) : null}
+          </div>
+
           <p style={{ marginTop: 6, color: "#94a3b8" }}>
             New users + what users are putting out there (activity feed)
           </p>
+
+          {sessionUser?.email ? (
+            <div style={{ marginTop: 6, color: "#64748b", fontSize: 12 }}>
+              Signed in as {sessionUser.email}
+            </div>
+          ) : null}
         </div>
 
         <div
@@ -353,7 +390,7 @@ export default function AdminDashboardPage() {
             justifyContent: "flex-end",
           }}
         >
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <Link
               href={"/admin/athletes" as Route}
               prefetch={false}

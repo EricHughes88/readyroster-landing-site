@@ -1,4 +1,3 @@
-// app/admin/events/[eventName]/page.tsx
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Pool } from "pg";
@@ -89,6 +88,10 @@ async function requireAdmin() {
   return session;
 }
 
+function eventWhereSql(column: string) {
+  return `LOWER(TRIM(COALESCE(${column}, ''))) = LOWER(TRIM($1))`;
+}
+
 async function getCoachNeeds(
   client: Pool,
   eventName: string
@@ -106,9 +109,19 @@ async function getCoachNeeds(
       COALESCE(cn.state, t.state) AS state,
       cn.created_at
     FROM public.coach_needs cn
-    LEFT JOIN public.teams t
-      ON t.userid = cn.coach_user_id
-    WHERE LOWER(TRIM(cn.event_name)) = LOWER(TRIM($1))
+    LEFT JOIN LATERAL (
+      SELECT
+        teamname,
+        coach_name,
+        contactemail,
+        city,
+        state
+      FROM public.teams
+      WHERE userid = cn.coach_user_id
+      ORDER BY teamid DESC NULLS LAST
+      LIMIT 1
+    ) t ON true
+    WHERE ${eventWhereSql("cn.event_name")}
     ORDER BY cn.created_at DESC NULLS LAST, cn.id DESC
   `;
 
@@ -126,16 +139,39 @@ async function getAthleteInterests(
       wi.event_name,
       wi.weight_class,
       wi.age_group,
-      TRIM(COALESCE(a.firstname, '') || ' ' || COALESCE(a.lastname, '')) AS athlete_name,
-      NULL::text AS parent_name,
-      a.parent_email,
-      a.city,
-      a.state,
+
+      NULLIF(
+        TRIM(
+          CONCAT(
+            COALESCE(w.first_name, ''),
+            ' ',
+            COALESCE(w.last_name, '')
+          )
+        ),
+        ''
+      ) AS athlete_name,
+
+      NULLIF(
+        TRIM(
+          CONCAT(
+            COALESCE(u.firstname, ''),
+            ' ',
+            COALESCE(u.lastname, '')
+          )
+        ),
+        ''
+      ) AS parent_name,
+
+      u.email AS parent_email,
+      w.city,
+      w.state,
       wi.created_at
     FROM public.wrestler_interests wi
-    LEFT JOIN public.athletes a
-      ON a.athleteid = wi.wrestler_id
-    WHERE LOWER(TRIM(wi.event_name)) = LOWER(TRIM($1))
+    LEFT JOIN public.wrestlers w
+      ON w.id = wi.wrestler_id
+    LEFT JOIN public.users u
+      ON u.id = w.parent_user_id
+    WHERE ${eventWhereSql("wi.event_name")}
     ORDER BY wi.created_at DESC NULLS LAST, wi.id DESC
   `;
 
@@ -152,7 +188,18 @@ async function getMatches(
       m.id AS match_id,
       COALESCE(wi.event_name, cn.event_name) AS event_name,
       m.status,
-      TRIM(COALESCE(a.firstname, '') || ' ' || COALESCE(a.lastname, '')) AS athlete_name,
+
+      NULLIF(
+        TRIM(
+          CONCAT(
+            COALESCE(w.first_name, ''),
+            ' ',
+            COALESCE(w.last_name, '')
+          )
+        ),
+        ''
+      ) AS athlete_name,
+
       t.teamname AS team_name,
       t.coach_name,
       m.created_at
@@ -161,11 +208,18 @@ async function getMatches(
       ON wi.id = m.wrestler_interest_id
     LEFT JOIN public.coach_needs cn
       ON cn.id = m.coach_need_id
-    LEFT JOIN public.athletes a
-      ON a.athleteid = wi.wrestler_id
-    LEFT JOIN public.teams t
-      ON t.userid = cn.coach_user_id
-    WHERE LOWER(TRIM(COALESCE(wi.event_name, cn.event_name))) = LOWER(TRIM($1))
+    LEFT JOIN public.wrestlers w
+      ON w.id = wi.wrestler_id
+    LEFT JOIN LATERAL (
+      SELECT
+        teamname,
+        coach_name
+      FROM public.teams
+      WHERE userid = cn.coach_user_id
+      ORDER BY teamid DESC NULLS LAST
+      LIMIT 1
+    ) t ON true
+    WHERE LOWER(TRIM(COALESCE(wi.event_name, cn.event_name, ''))) = LOWER(TRIM($1))
     ORDER BY m.created_at DESC NULLS LAST, m.id DESC
   `;
 

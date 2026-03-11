@@ -25,15 +25,34 @@ type AuditResponse = {
   warning?: string;
 };
 
+type SessionUser = {
+  id?: string | number;
+  email?: string | null;
+  role?: string | null;
+  name?: string | null;
+  isSuperAdmin?: boolean;
+};
+
 function niceName(i: AuditItem) {
   const n = [i.admin_firstname, i.admin_lastname].filter(Boolean).join(" ").trim();
   return n || i.admin_email || `Admin #${i.admin_user_id}`;
+}
+
+function isAllowedSuperAdmin(user: SessionUser | null) {
+  const email = String(user?.email ?? "").trim().toLowerCase();
+  const superEmails = [
+    "eric@nuwaycombat.com",
+    "brittaustin1031@gmail.com",
+  ];
+
+  return Boolean(user?.isSuperAdmin) || superEmails.includes(email);
 }
 
 export default function AdminActivityPage() {
   const [items, setItems] = useState<AuditItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [allowed, setAllowed] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +61,21 @@ export default function AdminActivityPage() {
       try {
         setLoading(true);
         setErr(null);
+
+        const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
+        const sessionData = sessionRes.ok ? await sessionRes.json() : null;
+        const user = (sessionData?.user as SessionUser) ?? null;
+
+        const canView = isAllowedSuperAdmin(user);
+
+        if (cancelled) return;
+        setAllowed(canView);
+
+        if (!canView) {
+          setErr("Access denied");
+          setItems([]);
+          return;
+        }
 
         const res = await fetch("/api/admin/audit?limit=100", { cache: "no-store" });
         const data: AuditResponse = await res.json();
@@ -89,7 +123,11 @@ export default function AdminActivityPage() {
           <div className="rr-alert rr-alert-error mb-4">{err}</div>
         ) : null}
 
-        {loading ? (
+        {!loading && allowed === false ? (
+          <div className="text-sm text-slate-400">
+            You do not have permission to view this page.
+          </div>
+        ) : loading ? (
           <div className="text-sm text-slate-400">Loading…</div>
         ) : items.length === 0 ? (
           <div className="text-sm text-slate-400">No admin activity yet.</div>

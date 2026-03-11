@@ -20,38 +20,73 @@ function getSuperEmails() {
     .filter(Boolean);
 }
 
+function isAllowedSuperAdmin(email?: string | null, isSuperAdmin?: boolean) {
+  const normalized = String(email ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+
+  const allowlisted = getSuperEmails();
+  return Boolean(isSuperAdmin) || allowlisted.includes(normalized);
+}
+
 async function requireSuperAdmin() {
-  const session = await getServerSession(authConfig as any);
-  const email = String((session as any)?.user?.email ?? "").trim().toLowerCase();
+  const session = (await getServerSession(authConfig as any)) as any;
+
+  const email = String(session?.user?.email ?? "").trim().toLowerCase();
+  const role = String(session?.user?.role ?? "").trim().toLowerCase();
+  const sessionIsSuperAdmin = Boolean(session?.user?.isSuperAdmin);
   const supers = getSuperEmails();
-  if (!email || supers.length === 0 || !supers.includes(email)) {
-    return { ok: false as const, email };
+
+  console.log("[admin/users] session email:", email);
+  console.log("[admin/users] session role:", role);
+  console.log("[admin/users] session isSuperAdmin:", sessionIsSuperAdmin);
+  console.log("[admin/users] SUPER_ADMIN_EMAILS:", supers);
+
+  if (!email) {
+    return { ok: false as const, status: 401, email, message: "Not signed in" };
   }
+
+  if (!isAllowedSuperAdmin(email, sessionIsSuperAdmin)) {
+    return { ok: false as const, status: 403, email, message: "Forbidden" };
+  }
+
   return { ok: true as const, email };
 }
 
-const ALLOWED_ROLE_FILTERS = ["Super Admin", "Admin", "Coach", "Parent", "Athlete"] as const;
+const ALLOWED_ROLE_FILTERS = [
+  "Super Admin",
+  "Admin",
+  "Coach",
+  "Parent",
+  "Athlete",
+] as const;
+
 type RoleFilter = (typeof ALLOWED_ROLE_FILTERS)[number];
 
 function normalizeRoleFilter(v: string | null): RoleFilter | null {
   const s = String(v ?? "").trim();
   if (!s) return null;
-  return (ALLOWED_ROLE_FILTERS as readonly string[]).includes(s) ? (s as RoleFilter) : null;
+
+  return (ALLOWED_ROLE_FILTERS as readonly string[]).includes(s)
+    ? (s as RoleFilter)
+    : null;
 }
 
 export async function GET(req: NextRequest) {
   try {
     const gate = await requireSuperAdmin();
-    if (!gate.ok) return jsonError("Forbidden", 403);
+    if (!gate.ok) {
+      return jsonError(gate.message, gate.status);
+    }
 
     const url = new URL(req.url);
 
     const qRaw = (url.searchParams.get("q") || "").trim().toLowerCase();
-    const roleRaw = normalizeRoleFilter(url.searchParams.get("role")); // "Admin" | "Super Admin" | ...
+    const roleRaw = normalizeRoleFilter(url.searchParams.get("role"));
     const limitRaw = Number(url.searchParams.get("limit") || 200);
-    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, limitRaw)) : 200;
+    const limit = Number.isFinite(limitRaw)
+      ? Math.max(1, Math.min(500, limitRaw))
+      : 200;
 
-    // Build WHERE dynamically but safely (parameterized)
     const where: string[] = [];
     const params: any[] = [];
     let p = 1;
@@ -69,9 +104,28 @@ export async function GET(req: NextRequest) {
     }
 
     if (roleRaw) {
-      where.push(`COALESCE(role,'Parent') = $${p}`);
-      params.push(roleRaw);
-      p += 1;
+      if (roleRaw === "Super Admin") {
+        const supers = getSuperEmails();
+        if (supers.length === 0) {
+          return NextResponse.json({
+            ok: true,
+            users: [],
+            rows: [],
+            count: 0,
+            limit,
+            role: roleRaw,
+            q: qRaw || "",
+          });
+        }
+
+        where.push(`LOWER(COALESCE(email,'')) = ANY($${p})`);
+        params.push(supers);
+        p += 1;
+      } else {
+        where.push(`COALESCE(role,'Parent') = $${p}`);
+        params.push(roleRaw);
+        p += 1;
+      }
     }
 
     params.push(limit);
@@ -85,10 +139,23 @@ export async function GET(req: NextRequest) {
     `;
 
     const res = await pool.query(sql, params);
+    let users = Array.isArray(res.rows) ? res.rows : [];
 
-    const users = Array.isArray(res.rows) ? res.rows : [];
+    if (!roleRaw) {
+      const supers = new Set(getSuperEmails());
+      users = users.map((u: any) => ({
+        ...u,
+        role: supers.has(String(u.email ?? "").toLowerCase())
+          ? "Super Admin"
+          : (u.role ?? "Parent"),
+      }));
+    } else if (roleRaw === "Super Admin") {
+      users = users.map((u: any) => ({
+        ...u,
+        role: "Super Admin",
+      }));
+    }
 
-    // Return under multiple keys so any existing UI won't break
     return NextResponse.json({
       ok: true,
       users,

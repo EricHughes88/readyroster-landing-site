@@ -12,57 +12,66 @@ declare global {
   // eslint-disable-next-line no-var
   var __RR_PG_POOL__: pg.Pool | undefined;
 }
+
 const { Pool } = pg;
 
 function getPool(): pg.Pool {
   const conn = process.env.DATABASE_URL;
   if (!conn) throw new Error("DATABASE_URL not set");
+
   if (!global.__RR_PG_POOL__) {
     global.__RR_PG_POOL__ = new Pool({ connectionString: conn });
   }
+
   return global.__RR_PG_POOL__;
 }
 
 function isMissingTableError(err: any) {
-  // Postgres undefined_table
   return String(err?.code) === "42P01";
 }
 
 function getSuperAdminEmails(): string[] {
-  const raw = process.env.SUPER_ADMIN_EMAILS || "";
-  return raw
+  return String(process.env.SUPER_ADMIN_EMAILS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 }
 
-export async function GET(req: NextRequest) {
-  const session = await getServerSession(authConfig);
+function isAllowedSuperAdmin(email?: string | null, isSuperAdmin?: boolean) {
+  const normalized = String(email ?? "").trim().toLowerCase();
+  if (!normalized) return false;
 
-  if (!session?.user) {
+  const allowlisted = getSuperAdminEmails();
+  return Boolean(isSuperAdmin) || allowlisted.includes(normalized);
+}
+
+export async function GET(req: NextRequest) {
+  const session = (await getServerSession(authConfig as any)) as any;
+
+  const email = String(session?.user?.email ?? "")
+    .trim()
+    .toLowerCase();
+
+  const role = String(session?.user?.role ?? "")
+    .trim()
+    .toLowerCase();
+
+  const sessionIsSuperAdmin = Boolean(session?.user?.isSuperAdmin);
+  const superAdmins = getSuperAdminEmails();
+
+  console.log("AUDIT SESSION EMAIL:", email);
+  console.log("AUDIT SESSION ROLE:", role);
+  console.log("AUDIT SESSION isSuperAdmin:", sessionIsSuperAdmin);
+  console.log("AUDIT SUPER ADMINS:", superAdmins);
+
+  if (!email) {
     return NextResponse.json(
       { ok: false, message: "Not signed in" },
       { status: 401 }
     );
   }
 
-  const role = (session.user as any)?.role;
-  if (role !== "Admin") {
-    return NextResponse.json(
-      { ok: false, message: "Access denied" },
-      { status: 403 }
-    );
-  }
-
-  // ✅ Super Admin gate: ONLY allow the allowlisted emails to read audit log
-  const email = String((session.user as any)?.email ?? "")
-    .trim()
-    .toLowerCase();
-
-  const superAdmins = getSuperAdminEmails();
-
-  // If SUPER_ADMIN_EMAILS isn't set, default to deny (safer)
-  if (!superAdmins.length || !superAdmins.includes(email)) {
+  if (!isAllowedSuperAdmin(email, sessionIsSuperAdmin)) {
     return NextResponse.json(
       { ok: false, message: "Access denied" },
       { status: 403 }
@@ -80,12 +89,12 @@ export async function GET(req: NextRequest) {
   try {
     const { rows } = await pool.query(
       `
-      select
+      SELECT
         l.id,
         l.admin_user_id,
-        u.email as admin_email,
-        u.firstname as admin_firstname,
-        u.lastname as admin_lastname,
+        u.email AS admin_email,
+        u.firstname AS admin_firstname,
+        u.lastname AS admin_lastname,
         l.action,
         l.entity_type,
         l.entity_id,
@@ -93,26 +102,29 @@ export async function GET(req: NextRequest) {
         l.ip,
         l.user_agent,
         l.created_at
-      from public.admin_audit_log l
-      left join public.users u on u.id = l.admin_user_id
-      order by l.created_at desc
-      limit $1
+      FROM public.admin_audit_log l
+      LEFT JOIN public.users u
+        ON u.id = l.admin_user_id
+      ORDER BY l.created_at DESC
+      LIMIT $1
       `,
       [limit]
     );
 
-    // ✅ Intentionally DO NOT log "view_admin_activity_feed"
-    // This endpoint is the audit feed itself; logging it creates spam and hides real actions.
-    return NextResponse.json({ ok: true, items: rows });
+    return NextResponse.json({
+      ok: true,
+      items: rows,
+    });
   } catch (err: any) {
     if (isMissingTableError(err)) {
-      // Table not created yet → return empty feed instead of 500
       return NextResponse.json({
         ok: true,
         items: [],
         warning: "admin_audit_log_missing",
       });
     }
+
+    console.error("GET /api/admin/audit error:", err);
 
     return NextResponse.json(
       {
