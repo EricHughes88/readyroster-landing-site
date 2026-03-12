@@ -53,7 +53,7 @@ export async function GET() {
     const role = normalizeRole(user.role);
 
     if (role === "parent" || role === "athlete") {
-      const result = await client.query(
+      const potentialMatchesRes = await client.query(
         `
         SELECT DISTINCT ON (
           cn.coach_user_id,
@@ -80,7 +80,23 @@ export async function GET() {
           t.teamname,
           t.coach_name,
           t.contactemail,
-          t.logopath
+          t.logopath,
+
+          EXISTS (
+            SELECT 1
+            FROM public.profile_views pv
+            WHERE pv.target_type = 'athlete'
+              AND pv.target_id = wi.wrestler_id
+              AND pv.viewer_user_id = cn.coach_user_id
+          ) AS coach_viewed,
+
+          (
+            SELECT MAX(pv.viewed_at)
+            FROM public.profile_views pv
+            WHERE pv.target_type = 'athlete'
+              AND pv.target_id = wi.wrestler_id
+              AND pv.viewer_user_id = cn.coach_user_id
+          ) AS coach_viewed_at
 
         FROM public.wrestler_interests wi
 
@@ -146,10 +162,61 @@ export async function GET() {
         [user.id]
       );
 
+      const recentCoachViewersRes = await client.query(
+        `
+        SELECT DISTINCT ON (pv.viewer_user_id, wi.wrestler_id)
+          pv.viewer_user_id,
+          pv.viewed_at,
+          wi.wrestler_id,
+          a.firstname,
+          a.lastname,
+          t.teamid,
+          t.teamname,
+          t.coach_name,
+          t.contactemail,
+          t.logopath
+        FROM public.profile_views pv
+
+        INNER JOIN public.users u
+          ON u.id = pv.viewer_user_id
+         AND LOWER(COALESCE(u.role, '')) = 'coach'
+
+        INNER JOIN public.wrestler_interests wi
+          ON wi.wrestler_id = pv.target_id
+
+        INNER JOIN public.athletes a
+          ON a.athleteid = wi.wrestler_id
+
+        LEFT JOIN LATERAL (
+          SELECT
+            t1.teamid,
+            t1.teamname,
+            t1.coach_name,
+            t1.contactemail,
+            t1.logopath
+          FROM public.teams t1
+          WHERE t1.userid = pv.viewer_user_id
+          ORDER BY t1.teamid ASC
+          LIMIT 1
+        ) t ON true
+
+        WHERE
+          pv.target_type = 'athlete'
+          AND a.userid = $1
+
+        ORDER BY
+          pv.viewer_user_id,
+          wi.wrestler_id,
+          pv.viewed_at DESC
+        `,
+        [user.id]
+      );
+
       return NextResponse.json({
         ok: true,
         role,
-        potentialMatches: result.rows,
+        potentialMatches: potentialMatchesRes.rows,
+        recentCoachViewers: recentCoachViewersRes.rows,
       });
     }
 
@@ -249,6 +316,7 @@ export async function GET() {
       ok: true,
       role,
       potentialMatches: [],
+      recentCoachViewers: [],
     });
   } catch (error: any) {
     console.error("GET /api/matches/potential error:", error);

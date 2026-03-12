@@ -24,7 +24,6 @@ export async function GET(
 
   const client = await pool.connect();
   try {
-    // Profile comes from the same source as admin_athletes_directory
     const profileRes = await client.query(
       `
       SELECT
@@ -38,8 +37,7 @@ export async function GET(
         u.firstname AS parent_firstname,
         u.lastname AS parent_lastname,
         u.email AS parent_email,
-        u.phone AS parent_phone,
-        NULL::text AS created_at
+        u.phone AS parent_phone
       FROM public.wrestlers w
       LEFT JOIN public.users u
         ON u.id = w.parent_user_id
@@ -55,7 +53,6 @@ export async function GET(
       return jsonError("Athlete not found", 404, { wrestlerId });
     }
 
-    // Interests now line up with wrestlers.id
     const interestsRes = await client.query(
       `
       SELECT
@@ -68,15 +65,11 @@ export async function GET(
         created_at
       FROM public.wrestler_interests
       WHERE wrestler_id = $1
-      ORDER BY created_at DESC NULLS LAST
+      ORDER BY created_at DESC NULLS LAST, id DESC
       `,
       [wrestlerId]
     );
 
-    // Matches using your real schema:
-    // matches.wrestler_interest_id -> wrestler_interests.id
-    // matches.coach_need_id -> coach_needs.id
-    // coach_needs.coach_user_id -> teams.userid
     const matchesRes = await client.query(
       `
       SELECT
@@ -96,7 +89,7 @@ export async function GET(
       LEFT JOIN public.teams t
         ON t.userid = cn.coach_user_id
       WHERE wi.wrestler_id = $1
-      ORDER BY m.created_at DESC NULLS LAST
+      ORDER BY m.created_at DESC NULLS LAST, m.id DESC
       `,
       [wrestlerId]
     );
@@ -200,10 +193,13 @@ export async function PATCH(
     const r = await client.query(q, [...values, wrestlerId]);
 
     if (r.rowCount === 0) {
-      return jsonError("Athlete not found", 404);
+      return jsonError("Athlete not found", 404, { wrestlerId });
     }
 
-    return NextResponse.json({ ok: true, athlete: r.rows[0] });
+    return NextResponse.json({
+      ok: true,
+      athlete: r.rows[0],
+    });
   } catch (e: any) {
     return jsonError("Failed to update athlete", 500, {
       wrestlerId,

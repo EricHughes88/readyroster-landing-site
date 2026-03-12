@@ -26,12 +26,28 @@ type PotentialMatch = {
   coach_name: string | null;
   contactemail?: string | null;
   logopath?: string | null;
+  coach_viewed?: boolean;
+  coach_viewed_at?: string | null;
+};
+
+type RecentCoachViewer = {
+  viewer_user_id?: number;
+  viewed_at?: string | null;
+  wrestler_id?: number;
+  firstname?: string | null;
+  lastname?: string | null;
+  teamid?: number | null;
+  teamname?: string | null;
+  coach_name?: string | null;
+  contactemail?: string | null;
+  logopath?: string | null;
 };
 
 type PotentialMatchesResponse = {
   ok: boolean;
   role?: string;
   potentialMatches?: PotentialMatch[];
+  recentCoachViewers?: RecentCoachViewer[];
   message?: string;
   error?: string;
 };
@@ -55,6 +71,21 @@ function formatEventDate(value?: string | null) {
   });
 }
 
+function formatViewedAt(value?: string | null) {
+  if (!value) return null;
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+
+  return d.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function formatWrestlerName(firstname?: string | null, lastname?: string | null) {
   const first = safeText(firstname, "").trim();
   const last = safeText(lastname, "").trim();
@@ -67,6 +98,7 @@ export default function ParentDashboardPage() {
   const [ready, setReady] = useState(false);
 
   const [potentialMatches, setPotentialMatches] = useState<PotentialMatch[]>([]);
+  const [recentCoachViewers, setRecentCoachViewers] = useState<RecentCoachViewer[]>([]);
   const [loadingMatches, setLoadingMatches] = useState(true);
   const [matchesError, setMatchesError] = useState("");
 
@@ -112,11 +144,15 @@ export default function ParentDashboardPage() {
           setPotentialMatches(
             Array.isArray(data.potentialMatches) ? data.potentialMatches : []
           );
+          setRecentCoachViewers(
+            Array.isArray(data.recentCoachViewers) ? data.recentCoachViewers : []
+          );
         }
       } catch (err: any) {
         if (!cancelled) {
           setMatchesError(err?.message || "Failed to load potential matches");
           setPotentialMatches([]);
+          setRecentCoachViewers([]);
         }
       } finally {
         if (!cancelled) {
@@ -195,6 +231,77 @@ export default function ParentDashboardPage() {
       <section className="mt-10 rounded-2xl border border-slate-700 bg-slate-900/60 p-6">
         <div className="flex flex-col gap-3 border-b border-slate-700 pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
+            <h2 className="text-2xl font-semibold text-white">Recently Viewed By Coaches</h2>
+            <p className="mt-1 text-sm text-slate-300">
+              Coaches who have recently looked at your athletes.
+            </p>
+          </div>
+
+          <div className="inline-flex w-fit items-center rounded-full border border-cyan-700 bg-cyan-900/40 px-4 py-2 text-sm font-semibold text-cyan-300">
+            {loadingMatches
+              ? "Loading..."
+              : `${recentCoachViewers.length} recent view${
+                  recentCoachViewers.length === 1 ? "" : "s"
+                }`}
+          </div>
+        </div>
+
+        {loadingMatches ? (
+          <div className="py-8 text-sm text-slate-300">Loading recent views...</div>
+        ) : recentCoachViewers.length === 0 ? (
+          <div className="py-8 text-sm text-slate-400">
+            No recent coach profile views yet.
+          </div>
+        ) : (
+          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {recentCoachViewers.map((viewer, idx) => {
+              const wrestlerName = formatWrestlerName(viewer.firstname, viewer.lastname);
+              const viewedAt = formatViewedAt(viewer.viewed_at);
+
+              return (
+                <div
+                  key={`${viewer.viewer_user_id}-${viewer.wrestler_id}-${idx}`}
+                  className="rounded-2xl border border-slate-700 bg-slate-950/50 p-5 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-cyan-300">
+                        Recently Viewed
+                      </div>
+                      <h3 className="mt-1 text-lg font-bold text-white">
+                        {safeText(viewer.coach_name, "A coach")}
+                      </h3>
+                      <p className="mt-1 text-sm text-slate-300">
+                        Team: {safeText(viewer.teamname, "Unnamed Team")}
+                      </p>
+                      <p className="mt-2 text-sm text-slate-300">
+                        Wrestler: {wrestlerName}
+                      </p>
+                      {viewedAt ? (
+                        <p className="mt-1 text-xs text-slate-400">
+                          Viewed: {viewedAt}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {viewer.logopath ? (
+                      <img
+                        src={viewer.logopath}
+                        alt={safeText(viewer.teamname, "Team logo")}
+                        className="h-14 w-14 rounded-lg border border-slate-700 object-cover"
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-10 rounded-2xl border border-slate-700 bg-slate-900/60 p-6">
+        <div className="flex flex-col gap-3 border-b border-slate-700 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
             <h2 className="text-2xl font-semibold text-white">Potential Matches</h2>
             <p className="mt-1 text-sm text-slate-300">
               Teams and coaches that currently match your wrestler interests.
@@ -237,6 +344,7 @@ export default function ParentDashboardPage() {
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
             {potentialMatches.map((match) => {
               const eventDate = formatEventDate(match.event_date);
+              const viewedAt = formatViewedAt(match.coach_viewed_at);
               const location =
                 [safeText(match.city, ""), safeText(match.state, "")]
                   .filter(Boolean)
@@ -282,6 +390,19 @@ export default function ParentDashboardPage() {
                       />
                     ) : null}
                   </div>
+
+                  {match.coach_viewed ? (
+                    <div className="mt-4 rounded-xl border border-emerald-700 bg-emerald-950/40 px-3 py-2">
+                      <div className="text-sm font-semibold text-emerald-300">
+                        👀 {safeText(match.coach_name, "A coach")} viewed this athlete
+                      </div>
+                      {viewedAt ? (
+                        <div className="mt-1 text-xs text-emerald-200/80">
+                          Last viewed: {viewedAt}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="rounded-xl bg-slate-800/70 p-3">

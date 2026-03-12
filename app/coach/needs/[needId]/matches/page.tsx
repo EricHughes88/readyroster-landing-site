@@ -19,7 +19,7 @@ type Need = {
 
 type Candidate = {
   id: number; // wrestler_interest id
-  wrestler_id: number | null;
+  wrestler_id: number | string | null;
   first_name: string | null;
   last_name: string | null;
   event_name: string | null;
@@ -78,7 +78,6 @@ export default function NeedMatchesPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // UI controls
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<MatchStatus>("all");
   const [sortKey, setSortKey] = useState<SortKey>("wrestler");
@@ -86,11 +85,9 @@ export default function NeedMatchesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // sending + success message
   const [sendingForId, setSendingForId] = useState<number | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  // Load need + candidates
   useEffect(() => {
     if (!needId) return;
     (async () => {
@@ -116,7 +113,6 @@ export default function NeedMatchesPage() {
     })();
   }, [needId]);
 
-  // Helper to refresh after sending a request
   const refreshMatches = async () => {
     try {
       const res = await fetch(`/api/coach/needs/${needId}/matches`, {
@@ -132,7 +128,6 @@ export default function NeedMatchesPage() {
     }
   };
 
-  // Send match request to athlete
   const handleSendRequest = async (c: Candidate) => {
     if (!needId) return;
     setErr(null);
@@ -153,8 +148,6 @@ export default function NeedMatchesPage() {
       }
 
       setActionMessage(`Match request sent to ${getWrestlerName(c)}.`);
-
-      // Reload matches so the row updates to pending
       await refreshMatches();
     } catch (e: any) {
       console.error("handleSendRequest error", e);
@@ -164,7 +157,6 @@ export default function NeedMatchesPage() {
     }
   };
 
-  // Filter + search + sort
   const filteredSorted = useMemo(() => {
     let items = [...rows];
 
@@ -209,7 +201,6 @@ export default function NeedMatchesPage() {
     return items;
   }, [rows, search, statusFilter, sortKey, sortDir]);
 
-  // Pagination
   const total = filteredSorted.length;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(Math.max(page, 1), pageCount);
@@ -414,11 +405,16 @@ export default function NeedMatchesPage() {
                   const status = normalizeStatus(c);
                   const canSendRequest = !matchId || c.match_status === null;
 
+                  const wrestlerIdNum = Number(c.wrestler_id);
+                  const canViewAthlete = Number.isFinite(wrestlerIdNum) && wrestlerIdNum > 0;
+
                   return (
                     <tr key={c.id} className="border-t border-slate-800">
                       <td className="px-3 py-2">
                         {getWrestlerName(c)}
-                        <div className="text-[11px] text-slate-500">ID: {c.wrestler_id ?? "—"}</div>
+                        <div className="text-[11px] text-slate-500">
+                          ID: {c.wrestler_id ?? "—"}
+                        </div>
                       </td>
                       <td className="px-3 py-2">{c.event_name ?? "—"}</td>
                       <td className="px-3 py-2">{fmtDate(c.event_date)}</td>
@@ -438,35 +434,54 @@ export default function NeedMatchesPage() {
                         {matchId ? (
                           <div className="flex flex-wrap gap-2">
                             <Link
+                              href={`/matches/${matchId}` as any}
+                              className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs"
+                            >
+                              View Match
+                            </Link>
+
+                            <Link
                               href={`/messages/match/${matchId}` as any}
                               className="px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs"
                             >
                               Message
                             </Link>
 
-                            {/* ✅ FIXED: correct match view route */}
-                            <Link
-                              href={`/matches/${matchId}` as any}
-                              className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs"
-                            >
-                              View Match
-                            </Link>
+                            {canViewAthlete && (
+                              <Link
+                                href={`/coach/athletes/${wrestlerIdNum}` as any}
+                                className="px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs"
+                              >
+                                View Athlete
+                              </Link>
+                            )}
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            disabled={!canSendRequest || sendingForId === c.id}
-                            onClick={() => handleSendRequest(c)}
-                            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                              sendingForId === c.id
-                                ? "bg-slate-700 text-slate-300 cursor-wait"
-                                : canSendRequest
-                                ? "bg-red-600 text-slate-950 hover:bg-red-500"
-                                : "bg-slate-800 text-slate-400 cursor-not-allowed"
-                            }`}
-                          >
-                            {sendingForId === c.id ? "Sending…" : "Send match request"}
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            {canViewAthlete && (
+                              <Link
+                                href={`/coach/athletes/${wrestlerIdNum}` as any}
+                                className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-100 hover:bg-slate-700"
+                              >
+                                View Athlete
+                              </Link>
+                            )}
+
+                            <button
+                              type="button"
+                              disabled={!canSendRequest || sendingForId === c.id}
+                              onClick={() => handleSendRequest(c)}
+                              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                                sendingForId === c.id
+                                  ? "bg-slate-700 text-slate-300 cursor-wait"
+                                  : canSendRequest
+                                  ? "bg-red-600 text-slate-950 hover:bg-red-500"
+                                  : "bg-slate-800 text-slate-400 cursor-not-allowed"
+                              }`}
+                            >
+                              {sendingForId === c.id ? "Sending…" : "Send match request"}
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
