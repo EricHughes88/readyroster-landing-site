@@ -1,10 +1,14 @@
 // app/coach/CoachHomeClient.tsx
 "use client";
 
+"use client";
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signOut } from "next-auth/react"; // ✅ NEW
+import { signOut } from "next-auth/react";
+import CoachRadar from "@/components/coach/CoachRadar";
+import FollowedAthletesPanel from "@/components/coach/FollowedAthletesPanel";
 
 type UserLike = {
   id: number | string;
@@ -21,7 +25,7 @@ type NeedRow = {
   age_group: string | null;
   city: string | null;
   state: string | null;
-  status?: string | null; // e.g. "open" | "closed"
+  status?: string | null;
 };
 
 type NeedsApiResponse =
@@ -31,7 +35,6 @@ type NeedsApiResponse =
     }
   | NeedRow[];
 
-// Matches the shape returned by /api/coach/team-profile
 type TeamProfile = {
   teamName: string;
   coachName: string;
@@ -76,14 +79,10 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
   const [loadingNeeds, setLoadingNeeds] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // team profile state
   const [team, setTeam] = useState<TeamProfile | null>(null);
   const [teamError, setTeamError] = useState<string | null>(null);
   const [loadingTeam, setLoadingTeam] = useState<boolean>(true);
 
-  /* -------------------------------------------------------- */
-  /* Save rr_user in localStorage so client helpers can use it */
-  /* -------------------------------------------------------- */
   useEffect(() => {
     if (!user?.id) return;
 
@@ -99,9 +98,6 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
     }
   }, [user]);
 
-  /* -------------------------------------------------------- */
-  /* Guard: if non-coach somehow lands here, bounce them      */
-  /* -------------------------------------------------------- */
   useEffect(() => {
     const role = (user.role || "").toLowerCase();
     if (role && role !== "coach") {
@@ -112,9 +108,6 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
     }
   }, [router, user.role]);
 
-  /* -------------------------------------------------------- */
-  /* Load recent needs for this coach                         */
-  /* -------------------------------------------------------- */
   useEffect(() => {
     if (!user?.id) return;
 
@@ -153,9 +146,6 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
     })();
   }, [user?.id]);
 
-  /* -------------------------------------------------------- */
-  /* Load team profile for this coach                         */
-  /* -------------------------------------------------------- */
   useEffect(() => {
     if (!user?.id) return;
 
@@ -183,9 +173,6 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
     })();
   }, [user?.id]);
 
-  /* -------------------------------------------------------- */
-  /* Button handlers                                          */
-  /* -------------------------------------------------------- */
   const handlePostNeed = () => router.push("/coach/needs/new");
   const handleViewNeeds = () => router.push("/coach/needs");
   const handleMatchRequests = () => router.push("/coach/matches?status=pending");
@@ -194,7 +181,6 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
   const handleMessages = () => router.push("/coach/matches?status=confirmed");
   const handleEditTeamProfile = () => router.push("/coach/team-profile" as any);
 
-  // ✅ NEW: logout
   const handleLogout = async () => {
     try {
       if (typeof window !== "undefined") {
@@ -209,26 +195,26 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-8">
         {/* Header card */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-5 mb-8">
+        <div className="mb-8 rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-semibold mb-1">Coach Dashboard</h1>
+              <h1 className="mb-1 text-2xl font-semibold">Coach Dashboard</h1>
 
-              <p className="text-sm text-slate-300 mb-1">
+              <p className="mb-1 text-sm text-slate-300">
                 Welcome, {user?.name ?? "Coach"}
                 {user?.email ? (
                   <span className="text-slate-400"> ({user.email})</span>
                 ) : null}
               </p>
 
-              <div className="flex flex-wrap items-center gap-2 mb-4">
+              <div className="mb-4 flex flex-wrap items-center gap-2">
                 <span className="text-xs text-slate-400">Team:</span>
                 <span className="text-xs font-semibold text-white">
                   {loadingTeam ? "Loading…" : team?.teamName || "No team set yet"}
                 </span>
                 <button
                   onClick={handleEditTeamProfile}
-                  className="text-xs underline text-blue-300 hover:text-blue-200"
+                  className="text-xs text-blue-300 underline hover:text-blue-200"
                 >
                   Edit team profile
                 </button>
@@ -238,60 +224,68 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
               </div>
             </div>
 
-            {/* ✅ NEW: Logout button (top-right) */}
             <button
               onClick={handleLogout}
-              className="h-8 px-3 rounded bg-slate-800 text-xs hover:bg-slate-700 border border-slate-700"
+              className="h-8 rounded border border-slate-700 bg-slate-800 px-3 text-xs hover:bg-slate-700"
               title="Logout"
             >
               Logout
             </button>
           </div>
 
-          {/* Top action buttons */}
           <div className="mt-1 flex flex-wrap gap-3">
             <button
               onClick={handlePostNeed}
-              className="px-4 py-2 rounded bg-red-600 text-white text-sm font-medium hover:bg-red-500"
+              className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500"
             >
               Post a Need
             </button>
 
             <button
               onClick={handleViewNeeds}
-              className="px-4 py-2 rounded bg-slate-800 text-sm hover:bg-slate-700 border border-slate-700"
+              className="rounded border border-slate-700 bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
             >
               View My Needs
             </button>
 
             <button
               onClick={handleMatchRequests}
-              className="px-4 py-2 rounded bg-slate-800 text-sm hover:bg-slate-700 border border-slate-700"
+              className="rounded border border-slate-700 bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
             >
               Match Requests
             </button>
 
             <button
               onClick={handlePending}
-              className="px-4 py-2 rounded bg-slate-800 text-sm hover:bg-slate-700 border border-slate-700"
+              className="rounded border border-slate-700 bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
             >
               Pending
             </button>
 
             <button
               onClick={handleConfirmed}
-              className="px-4 py-2 rounded bg-slate-800 text-sm hover:bg-slate-700 border border-slate-700"
+              className="rounded border border-slate-700 bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
             >
               Confirmed
             </button>
 
             <button
               onClick={handleMessages}
-              className="px-4 py-2 rounded bg-slate-800 text-sm hover:bg-slate-700 border border-slate-700"
+              className="rounded border border-slate-700 bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
             >
               Messages
             </button>
           </div>
+        </div>
+
+        {/* Athlete Availability Radar */}
+        <div className="mb-8">
+          <CoachRadar />
+        </div>
+
+        {/* Athletes You Follow */}
+        <div className="mb-8">
+          <FollowedAthletesPanel />
         </div>
 
         {/* Recent needs list */}
@@ -300,7 +294,7 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
             <h2 className="text-lg font-semibold">Your Recent Needs</h2>
             <Link
               href="/coach/needs"
-              className="text-xs text-slate-300 hover:text-white underline"
+              className="text-xs text-slate-300 underline hover:text-white"
             >
               Manage all
             </Link>
@@ -319,14 +313,14 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
           ) : needs.length === 0 ? (
             <div className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-6 text-sm text-slate-300">
               No needs yet. Click{" "}
-              <button onClick={handlePostNeed} className="underline text-slate-100">
+              <button onClick={handlePostNeed} className="text-slate-100 underline">
                 Post a Need
               </button>{" "}
               to get started.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm border border-slate-800 rounded-xl overflow-hidden">
+              <table className="w-full overflow-hidden rounded-xl border border-slate-800 text-sm">
                 <thead className="bg-slate-900/80 text-slate-200">
                   <tr>
                     <th className="px-3 py-2 text-left">Event</th>
@@ -360,7 +354,7 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
                       <td className="px-3 py-2">
                         <Link
                           href={`/coach/needs/${n.id}/matches`}
-                          className="inline-flex items-center rounded bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white px-3 py-1.5"
+                          className="inline-flex items-center rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
                         >
                           Find Matches
                         </Link>

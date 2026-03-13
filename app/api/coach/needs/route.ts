@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Pool } from "pg";
 import { notifyMatchesForCoachNeed } from "@/lib/matchNotifications";
+import { notifyCoachFollowersOnNeedPosted } from "@/lib/notifyCoachFollowers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -138,7 +139,18 @@ export async function POST(req: Request) {
           notes
         )
         VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8)
-        RETURNING id
+        RETURNING
+          id,
+          coach_user_id,
+          event_name,
+          event_date,
+          weight_class,
+          age_group,
+          city,
+          state,
+          notes,
+          is_open,
+          created_at
         `,
         [
           coachUserId,
@@ -152,16 +164,40 @@ export async function POST(req: Request) {
         ]
       );
 
-      const coachNeedId = Number(result.rows[0]?.id);
+      const insertedNeed = result.rows[0];
+      const coachNeedId = Number(insertedNeed?.id);
 
       if (Number.isFinite(coachNeedId) && coachNeedId > 0) {
-        await notifyMatchesForCoachNeed(coachNeedId);
+        try {
+          await notifyMatchesForCoachNeed(coachNeedId);
+        } catch (matchNotifyError) {
+          console.error(
+            "coach need created, but match notification logic failed:",
+            matchNotifyError
+          );
+        }
+
+        try {
+          await notifyCoachFollowersOnNeedPosted({
+            coachUserId,
+            coachNeedId,
+            eventName: insertedNeed?.event_name ?? null,
+            ageGroup: insertedNeed?.age_group ?? null,
+            weightClass: insertedNeed?.weight_class ?? null,
+          });
+        } catch (followerNotifyError) {
+          console.error(
+            "coach need created, but follower notifications failed:",
+            followerNotifyError
+          );
+        }
       }
 
       return NextResponse.json(
         {
           ok: true,
           id: coachNeedId,
+          need: insertedNeed,
           coach: coachCheck.rows[0],
         },
         { status: 201 }

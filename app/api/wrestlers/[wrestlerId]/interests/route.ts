@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import pg from "pg";
 import { z } from "zod";
 import { notifyMatchesForInterest } from "@/lib/matchEngine";
+import { notifyAthleteFollowersOnNewInterest } from "@/lib/notifyAthleteFollowers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -190,7 +191,11 @@ export async function POST(
     const client = await pool.connect();
     try {
       // Make sure this wrestlerId is a real wrestler record
-      const wrestlerCheck = await client.query(
+      const wrestlerCheck = await client.query<{
+        id: number;
+        first_name: string | null;
+        last_name: string | null;
+      }>(
         `
         SELECT id, first_name, last_name
         FROM public.wrestlers
@@ -211,7 +216,13 @@ export async function POST(
         );
       }
 
-      const r = await client.query(
+      const wrestler = wrestlerCheck.rows[0];
+      const wrestlerName =
+        `${String(wrestler.first_name ?? "").trim()} ${String(
+          wrestler.last_name ?? ""
+        ).trim()}`.trim() || "An athlete you follow";
+
+      const r = await client.query<{ id: number }>(
         `
         INSERT INTO public.wrestler_interests
           (wrestler_id, event_name, event_date, weight_class, age_group, notes)
@@ -224,14 +235,31 @@ export async function POST(
       const interestId = Number(r.rows[0]?.id);
 
       if (Number.isFinite(interestId) && interestId > 0) {
-        await notifyMatchesForInterest(interestId);
+        try {
+          await notifyMatchesForInterest(interestId);
+        } catch (matchErr) {
+          console.error("notifyMatchesForInterest failed:", matchErr);
+        }
+
+        try {
+          await notifyAthleteFollowersOnNewInterest({
+            wrestlerId: wid,
+            athleteName: wrestlerName,
+            eventName: eventName,
+            eventDate: eventDate || null,
+            weightClass: weightClass || null,
+            ageGroup: ageGroup || null,
+          });
+        } catch (notifyErr) {
+          console.error("[notifyAthleteFollowers] failed", notifyErr);
+        }
       }
 
       return NextResponse.json(
         {
           ok: true,
           id: interestId,
-          wrestler: wrestlerCheck.rows[0],
+          wrestler,
         },
         { status: 201 }
       );

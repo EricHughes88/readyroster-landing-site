@@ -3,6 +3,8 @@ import { Pool } from "pg";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../../auth.config";
 
+import { notifyAthleteFollowersOnNewInterest } from "@/lib/notifyAthleteFollowers";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -19,9 +21,11 @@ declare global {
 function getPool(): Pool | null {
   const conn = process.env.DATABASE_URL;
   if (!conn) return null;
+
   if (!global.__RR_ATH_INTEREST_POOL__) {
     global.__RR_ATH_INTEREST_POOL__ = new Pool({ connectionString: conn });
   }
+
   return global.__RR_ATH_INTEREST_POOL__;
 }
 
@@ -30,50 +34,112 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.user) return jsonError("Unauthorized", 401);
 
-    const role = (session.user as any)?.role;
+    const role = String((session.user as any)?.role ?? "");
     if (role !== "Athlete") return jsonError("Athlete only", 403);
 
     const userId = Number((session.user as any)?.id || 0);
     if (!userId) return jsonError("Invalid user", 400);
 
     const body = await req.json().catch(() => ({}));
+
     const event_name = String(body?.event_name ?? "").trim();
     if (!event_name) return jsonError("event_name is required", 400);
 
     const age_group = String(body?.age_group ?? "").trim();
     const weight_class = String(body?.weight_class ?? "").trim();
+    const event_date = String(body?.event_date ?? "").trim();
     const source = String(body?.source ?? "athlete_action").trim();
 
-    // Pack optional granularity into source for now (no schema changes)
     const sourcePacked = [
       source || "athlete_action",
       age_group ? `ageGroup=${encodeURIComponent(age_group)}` : "",
       weight_class ? `weight=${encodeURIComponent(weight_class)}` : "",
-    ].filter(Boolean).join(";");
+      event_date ? `eventDate=${encodeURIComponent(event_date)}` : "",
+    ]
+      .filter(Boolean)
+      .join(";");
 
     const pool = getPool();
     if (!pool) return jsonError("Database not configured", 500);
 
-    // Optional anti-spam: only 1 per athlete/event per day
-    await pool.query(
+    // Record athlete interest
+    const insertRes = await pool.query(
       `
-      insert into public.event_interests (user_id, event_name, source, actor_role, action_type)
-      select $1, $2, $3, 'Athlete', 'ATHLETE_INTEREST'
-      where not exists (
-        select 1 from public.event_interests
-        where user_id = $1
-          and event_name = $2
-          and actor_role = 'Athlete'
-          and action_type = 'ATHLETE_INTEREST'
-          and created_at >= now() - interval '24 hours'
+      INSERT INTO public.event_interests
+      (user_id, event_name, source, actor_role, action_type)
+      SELECT $1, $2, $3, 'Athlete', 'ATHLETE_INTEREST'
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM public.event_interests
+        WHERE user_id = $1
+          AND event_name = $2
+          AND actor_role = 'Athlete'
+          AND action_type = 'ATHLETE_INTEREST'
+          AND created_at >= now() - interval '24 hours'
       )
       `,
       [userId, event_name, sourcePacked]
     );
 
-    return NextResponse.json({ ok: true }, { status: 200 });
+    /*
+      ---------------------------------------
+      NEW: Notify coaches following this athlete
+      ---------------------------------------
+    */
+    if ((insertRes.rowCount ?? 0) > 0) {
+      const athleteRes = await pool.query<{
+        athleteid: number;
+        firstname: string | null;
+        lastname: string | null;
+      }>(
+        `
+        SELECT
+          athleteid,
+          firstname,
+          lastname
+        FROM public.athletes
+        WHERE userid = $1
+        LIMIT 1
+        `,
+        [userId]
+      );
+
+      if (athleteRes.rows.length > 0) {
+        const athlete = athleteRes.rows[0];
+        const athleteId = Number(athlete.athleteid);
+
+        const athleteName =
+          `${String(athlete.firstname ?? "").trim()} ${String(athlete.lastname ?? "").trim()}`.trim() ||
+          "An athlete you follow";
+
+        try {
+          await notifyAthleteFollowersOnNewInterest({
+            wrestlerId: athleteId,
+            athleteName,
+            eventName: event_name,
+            eventDate: event_date || null,
+            weightClass: weight_class || null,
+            ageGroup: age_group || null,
+          });
+        } catch (notifyErr) {
+          console.error("[notifyAthleteFollowers] failed", notifyErr);
+        }
+      }
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        inserted: (insertRes.rowCount ?? 0) > 0,
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     console.error("[athlete/interest] error", e);
-    return jsonError("Failed to record athlete interest", 500, String(e?.message || e));
+    return jsonError(
+      "Failed to record athlete interest",
+      500,
+      String(e?.message || e)
+    );
   }
 }

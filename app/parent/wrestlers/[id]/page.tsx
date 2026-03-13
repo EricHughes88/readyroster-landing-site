@@ -1,17 +1,52 @@
 // app/parent/wrestlers/[id]/page.tsx
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import ShareButton from "@/components/shared/ShareButton";
+import AthleteRecruitingCard from "@/components/athlete/AthleteRecruitingCard";
 
-type WrestlerSummary = any;
-type Interest = any;
+type WrestlerSummary = {
+  id?: number;
+  name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  event_name?: string | null;
+  age_group?: string | null;
+  weight_class?: string | null;
+  city?: string | null;
+  state?: string | null;
+  notes?: string | null;
+};
+
+type Interest = {
+  id: number;
+  event_name?: string | null;
+  event_date?: string | null;
+  age_group?: string | null;
+  weight_class?: string | null;
+  notes?: string | null;
+};
+
 type Match = {
   id: number;
   event_name?: string | null;
   event_date?: string | null;
   status?: string | null;
 };
+
+function fmtDate(raw?: string | null) {
+  if (!raw) return "—";
+  const d = new Date(raw);
+  return isNaN(d.getTime())
+    ? raw
+    : d.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+}
 
 export default function ParentWrestlerPage() {
   const params = useParams<{ id: string }>();
@@ -23,6 +58,13 @@ export default function ParentWrestlerPage() {
   const [pendingMatches, setPendingMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [origin, setOrigin] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   useEffect(() => {
     if (!wrestlerId) return;
@@ -56,18 +98,14 @@ export default function ParentWrestlerPage() {
         }
 
         setSummary(summaryJson.summary ?? summaryJson.data ?? null);
-        setInterests(
-          interestsJson.ok ? interestsJson.interests ?? [] : []
-        );
-        setPendingMatches(
-          pendingJson.ok ? pendingJson.matches ?? [] : []
-        );
+        setInterests(interestsJson.ok ? interestsJson.interests ?? [] : []);
+        setPendingMatches(pendingJson.ok ? pendingJson.matches ?? [] : []);
       } catch (e: any) {
         if (!on) return;
         console.error("Parent wrestler page load error", e);
         setErr(e?.message || "Failed to load wrestler data");
       } finally {
-        on && setLoading(false);
+        if (on) setLoading(false);
       }
     })();
 
@@ -80,34 +118,30 @@ export default function ParentWrestlerPage() {
     router.push("/parent");
   };
 
-  // pick a nice display name
   const displayName = useMemo(() => {
     if (summary?.name) return summary.name;
-    const combined = `${summary?.first_name ?? ""} ${
-      summary?.last_name ?? ""
-    }`.trim();
+    const combined = `${summary?.first_name ?? ""} ${summary?.last_name ?? ""}`.trim();
     return combined || "Athlete";
   }, [summary]);
 
-  // when you click the big "Messages" button in header:
-  // - if there is at least one pending match, go to that chat
-  // - otherwise, just stay on page (or later you can go to threads page)
+  const pageTitle = displayName !== "Athlete" ? displayName : "Athlete Profile";
+
   const handleHeaderMessagesClick = () => {
     if (pendingMatches.length > 0 && pendingMatches[0].id) {
       router.push(`/messages/${pendingMatches[0].id}`);
     } else {
-      // nothing to chat about yet – later you can route to a threads page
-      // for now we just no-op
       console.log("No pending matches to message yet");
     }
   };
 
+  const shareTitle = `${displayName} | Ready Roster`;
+  const shareText = `Check out ${displayName}'s athlete profile on Ready Roster`;
+  const shareUrl = origin ? `${origin}/athletes/${wrestlerId}` : undefined;
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-
-        {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <button
               onClick={handleBack}
@@ -116,15 +150,21 @@ export default function ParentWrestlerPage() {
               ← Back to dashboard
             </button>
 
-            <h1 className="text-2xl font-semibold">{displayName}</h1>
+            <h1 className="text-2xl font-semibold">{pageTitle}</h1>
 
             {summary?.event_name && (
               <p className="text-sm text-slate-300">{summary.event_name}</p>
             )}
           </div>
 
-          <div className="flex gap-2">
-            {/* 🔴 THIS is the main Messages button */}
+          <div className="flex flex-wrap gap-2 justify-end">
+            <ShareButton
+              title={shareTitle}
+              text={shareText}
+              url={shareUrl}
+              className="border-slate-700 bg-slate-800 text-white hover:bg-slate-700"
+            />
+
             <button
               type="button"
               onClick={handleHeaderMessagesClick}
@@ -148,147 +188,175 @@ export default function ParentWrestlerPage() {
           </div>
         )}
 
-        {/* Summary Cards */}
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Profile
-            </h2>
-            <p>
-              Name: <span className="text-slate-100">{displayName}</span>
-            </p>
-            {summary?.age_group && (
-              <p>
-                Age Group:{" "}
-                <span className="text-slate-100">{summary.age_group}</span>
-              </p>
-            )}
-            {summary?.weight_class && (
-              <p>
-                Weight:{" "}
-                <span className="text-slate-100">{summary.weight_class}</span>
-              </p>
-            )}
+        {loading ? (
+          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-300">
+            Loading wrestler...
           </div>
+        ) : (
+          <>
+            <div className="rounded-xl">
+              <AthleteRecruitingCard
+                firstName={summary?.first_name ?? ""}
+                lastName={summary?.last_name ?? ""}
+                ageGroup={summary?.age_group ?? null}
+                weightClass={summary?.weight_class ?? null}
+                city={summary?.city ?? null}
+                state={summary?.state ?? null}
+                eventName={summary?.event_name ?? null}
+                notes={summary?.notes ?? null}
+              />
+            </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Interests
-            </h2>
-            <p>
-              Total Interests:{" "}
-              <span className="text-slate-100">
-                {interests.length}
-              </span>
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Pending Matches
-            </h2>
-            <p>
-              Pending:{" "}
-              <span className="text-slate-100">
-                {pendingMatches.length}
-              </span>
-            </p>
-          </div>
-        </section>
-
-        {/* Event Interests Table */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-slate-200">
-            Event Interests
-          </h2>
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-900 text-slate-300 text-xs uppercase">
-                <tr>
-                  <th className="px-3 py-2 text-left">Event</th>
-                  <th className="px-3 py-2 text-left">Date</th>
-                  <th className="px-3 py-2 text-left">Age Group</th>
-                  <th className="px-3 py-2 text-left">Weight</th>
-                </tr>
-              </thead>
-              <tbody>
-                {interests.length > 0 ? (
-                  interests.map((i: any) => (
-                    <tr key={i.id} className="border-t border-slate-800">
-                      <td className="px-3 py-2">{i.event_name ?? "—"}</td>
-                      <td className="px-3 py-2">{i.event_date ?? "—"}</td>
-                      <td className="px-3 py-2">{i.age_group ?? "—"}</td>
-                      <td className="px-3 py-2">
-                        {i.weight_class ?? "—"}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={4}
-                      className="px-3 py-4 text-sm text-slate-400"
-                    >
-                      No interests yet.
-                    </td>
-                  </tr>
+            <section className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
+                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Profile
+                </h2>
+                <p>
+                  Name: <span className="text-slate-100">{displayName}</span>
+                </p>
+                {summary?.age_group && (
+                  <p>
+                    Age Group:{" "}
+                    <span className="text-slate-100">{summary.age_group}</span>
+                  </p>
                 )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                {summary?.weight_class && (
+                  <p>
+                    Weight:{" "}
+                    <span className="text-slate-100">{summary.weight_class}</span>
+                  </p>
+                )}
+                {(summary?.city || summary?.state) && (
+                  <p>
+                    Location:{" "}
+                    <span className="text-slate-100">
+                      {[summary?.city, summary?.state].filter(Boolean).join(", ")}
+                    </span>
+                  </p>
+                )}
+              </div>
 
-        {/* Pending Matches Table */}
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold text-slate-200">
-            Pending Matches
-          </h2>
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-900 text-slate-300 text-xs uppercase">
-                <tr>
-                  <th className="px-3 py-2 text-left">Event</th>
-                  <th className="px-3 py-2 text-left">Status</th>
-                  <th className="px-3 py-2 text-left">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendingMatches.length > 0 ? (
-                  pendingMatches.map((m) => (
-                    <tr key={m.id} className="border-t border-slate-800">
-                      <td className="px-3 py-2">
-                        {m.event_name ?? "Event"}
-                        {m.event_date ? ` - ${m.event_date}` : ""}
-                      </td>
-                      <td className="px-3 py-2 capitalize">
-                        {m.status ?? "pending"}
-                      </td>
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => router.push(`/messages/${m.id}`)}
-                          className="text-xs rounded bg-slate-800 px-3 py-1 hover:bg-slate-700 border border-slate-700"
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
+                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Interests
+                </h2>
+                <p>
+                  Total Interests:{" "}
+                  <span className="text-slate-100">{interests.length}</span>
+                </p>
+
+                <div className="mt-3">
+                  <Link
+                    href={`/parent/wrestlers/${wrestlerId}/interests`}
+                    className="inline-flex rounded-md bg-slate-800 px-3 py-2 text-xs text-slate-100 border border-slate-700 hover:bg-slate-700"
+                  >
+                    Manage Interests
+                  </Link>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
+                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Pending Matches
+                </h2>
+                <p>
+                  Pending:{" "}
+                  <span className="text-slate-100">{pendingMatches.length}</span>
+                </p>
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold text-slate-200">
+                Event Interests
+              </h2>
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-900 text-slate-300 text-xs uppercase">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Event</th>
+                      <th className="px-3 py-2 text-left">Date</th>
+                      <th className="px-3 py-2 text-left">Age Group</th>
+                      <th className="px-3 py-2 text-left">Weight</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {interests.length > 0 ? (
+                      interests.map((i) => (
+                        <tr key={i.id} className="border-t border-slate-800">
+                          <td className="px-3 py-2">{i.event_name ?? "—"}</td>
+                          <td className="px-3 py-2">{fmtDate(i.event_date)}</td>
+                          <td className="px-3 py-2">{i.age_group ?? "—"}</td>
+                          <td className="px-3 py-2">{i.weight_class ?? "—"}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="px-3 py-4 text-sm text-slate-400"
                         >
-                          Message coach
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={3}
-                      className="px-3 py-4 text-sm text-slate-400"
-                    >
-                      No pending matches yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                          No interests yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
 
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold text-slate-200">
+                Pending Matches
+              </h2>
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-900 text-slate-300 text-xs uppercase">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Event</th>
+                      <th className="px-3 py-2 text-left">Status</th>
+                      <th className="px-3 py-2 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingMatches.length > 0 ? (
+                      pendingMatches.map((m) => (
+                        <tr key={m.id} className="border-t border-slate-800">
+                          <td className="px-3 py-2">
+                            {m.event_name ?? "Event"}
+                            {m.event_date ? ` - ${fmtDate(m.event_date)}` : ""}
+                          </td>
+                          <td className="px-3 py-2 capitalize">
+                            {m.status ?? "pending"}
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => router.push(`/messages/${m.id}`)}
+                              className="text-xs rounded bg-slate-800 px-3 py-1 hover:bg-slate-700 border border-slate-700"
+                            >
+                              Message coach
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={3}
+                          className="px-3 py-4 text-sm text-slate-400"
+                        >
+                          No pending matches yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
       </div>
     </main>
   );

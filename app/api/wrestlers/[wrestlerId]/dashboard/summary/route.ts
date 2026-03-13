@@ -1,4 +1,3 @@
-// app/api/wrestlers/[wrestlerId]/dashboard/summary/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
@@ -6,6 +5,7 @@ let resolved: null | {
   tMessages: string;
   tMatches: string;
   tInterests: string;
+  tWrestlers: string;
   colMsgMatchId: string;
   colMsgReadAt: string | null;
   colMatchId: string;
@@ -13,6 +13,15 @@ let resolved: null | {
   colMatchStatus: string;
   colInterestId: string;
   colInterestWrestlerId: string;
+  colInterestEventName: string | null;
+  colWrestlerId: string;
+  colWrestlerFirstName: string | null;
+  colWrestlerLastName: string | null;
+  colWrestlerAgeGroup: string | null;
+  colWrestlerWeightClass: string | null;
+  colWrestlerCity: string | null;
+  colWrestlerState: string | null;
+  colWrestlerNotes: string | null;
 } = null;
 
 async function tableExists(q: string) {
@@ -56,11 +65,20 @@ async function resolveSchema() {
     ? '"WrestlerInterests"'
     : "wrestler_interests";
 
+  const tWrestlers = (await tableExists("public.wrestlers"))
+    ? "wrestlers"
+    : (await tableExists('public."Wrestlers"'))
+    ? '"Wrestlers"'
+    : "wrestlers";
+
   const mName = tMessages.startsWith('"') ? tMessages.slice(1, -1) : tMessages;
   const mtName = tMatches.startsWith('"') ? tMatches.slice(1, -1) : tMatches;
   const wiName = tInterests.startsWith('"')
     ? tInterests.slice(1, -1)
     : tInterests;
+  const wName = tWrestlers.startsWith('"')
+    ? tWrestlers.slice(1, -1)
+    : tWrestlers;
 
   const colMsgMatchId = (await columnExists(mName, "match_id"))
     ? "match_id"
@@ -92,10 +110,55 @@ async function resolveSchema() {
     ? "wrestler_id"
     : '"wrestlerId"';
 
+  const colInterestEventName = (await columnExists(wiName, "event_name"))
+    ? "event_name"
+    : (await columnExists(wiName, "eventName"))
+    ? '"eventName"'
+    : null;
+
+  const colWrestlerId = (await columnExists(wName, "id")) ? "id" : '"id"';
+
+  const colWrestlerFirstName = (await columnExists(wName, "first_name"))
+    ? "first_name"
+    : (await columnExists(wName, "firstname"))
+    ? "firstname"
+    : null;
+
+  const colWrestlerLastName = (await columnExists(wName, "last_name"))
+    ? "last_name"
+    : (await columnExists(wName, "lastname"))
+    ? "lastname"
+    : null;
+
+  const colWrestlerAgeGroup = (await columnExists(wName, "age_group"))
+    ? "age_group"
+    : (await columnExists(wName, "agegroup"))
+    ? "agegroup"
+    : null;
+
+  const colWrestlerWeightClass = (await columnExists(wName, "weight_class"))
+    ? "weight_class"
+    : (await columnExists(wName, "weightclass"))
+    ? "weightclass"
+    : null;
+
+  const colWrestlerCity = (await columnExists(wName, "city"))
+    ? "city"
+    : null;
+
+  const colWrestlerState = (await columnExists(wName, "state"))
+    ? "state"
+    : null;
+
+  const colWrestlerNotes = (await columnExists(wName, "notes"))
+    ? "notes"
+    : null;
+
   resolved = {
     tMessages,
     tMatches,
     tInterests,
+    tWrestlers,
     colMsgMatchId,
     colMsgReadAt,
     colMatchId,
@@ -103,6 +166,15 @@ async function resolveSchema() {
     colMatchStatus,
     colInterestId,
     colInterestWrestlerId,
+    colInterestEventName,
+    colWrestlerId,
+    colWrestlerFirstName,
+    colWrestlerLastName,
+    colWrestlerAgeGroup,
+    colWrestlerWeightClass,
+    colWrestlerCity,
+    colWrestlerState,
+    colWrestlerNotes,
   };
 
   return resolved;
@@ -124,6 +196,32 @@ export async function GET(
     }
 
     const s = await resolveSchema();
+
+    const wrestlerSql = `
+      SELECT
+        ${s.colWrestlerId} AS id,
+        ${s.colWrestlerFirstName ? `${s.colWrestlerFirstName} AS first_name,` : `NULL::text AS first_name,`}
+        ${s.colWrestlerLastName ? `${s.colWrestlerLastName} AS last_name,` : `NULL::text AS last_name,`}
+        ${s.colWrestlerAgeGroup ? `${s.colWrestlerAgeGroup} AS age_group,` : `NULL::text AS age_group,`}
+        ${s.colWrestlerWeightClass ? `${s.colWrestlerWeightClass} AS weight_class,` : `NULL::text AS weight_class,`}
+        ${s.colWrestlerCity ? `${s.colWrestlerCity} AS city,` : `NULL::text AS city,`}
+        ${s.colWrestlerState ? `${s.colWrestlerState} AS state,` : `NULL::text AS state,`}
+        ${s.colWrestlerNotes ? `${s.colWrestlerNotes} AS notes` : `NULL::text AS notes`}
+      FROM ${s.tWrestlers}
+      WHERE ${s.colWrestlerId} = $1
+      LIMIT 1
+    `;
+
+    const wrestler = await pool
+      .query(wrestlerSql, [id])
+      .then((r) => r.rows[0] ?? null);
+
+    if (!wrestler) {
+      return NextResponse.json(
+        { ok: false, message: "Wrestler not found" },
+        { status: 404 }
+      );
+    }
 
     const matchSql = `
       SELECT
@@ -173,8 +271,43 @@ export async function GET(
         .then((r) => r.rows[0]?.unread ?? 0);
     }
 
+    let eventName: string | null = null;
+
+    if (s.colInterestEventName) {
+      const eventSql = `
+        SELECT wi.${s.colInterestEventName} AS event_name
+        FROM ${s.tInterests} wi
+        WHERE wi.${s.colInterestWrestlerId} = $1
+          AND wi.${s.colInterestEventName} IS NOT NULL
+          AND TRIM(CAST(wi.${s.colInterestEventName} AS text)) <> ''
+        ORDER BY wi.${s.colInterestId} DESC
+        LIMIT 1
+      `;
+
+      eventName = await pool
+        .query(eventSql, [id])
+        .then((r) => r.rows[0]?.event_name ?? null);
+    }
+
+    const firstName = wrestler.first_name ?? null;
+    const lastName = wrestler.last_name ?? null;
+    const combinedName =
+      [firstName, lastName].filter(Boolean).join(" ").trim() || null;
+
     const data = {
       ok: true,
+      summary: {
+        id: wrestler.id,
+        name: combinedName,
+        first_name: firstName,
+        last_name: lastName,
+        age_group: wrestler.age_group ?? null,
+        weight_class: wrestler.weight_class ?? null,
+        city: wrestler.city ?? null,
+        state: wrestler.state ?? null,
+        notes: wrestler.notes ?? null,
+        event_name: eventName,
+      },
       matches: {
         total: mc.total,
         pending: mc.pending,

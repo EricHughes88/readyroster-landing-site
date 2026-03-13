@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import FollowAthleteButton from "@/components/athlete/FollowAthleteButton";
 
 type Profile = {
   id?: number | null;
@@ -184,7 +185,7 @@ export default function CoachAthleteProfilePage() {
   return (
     <main className="min-h-screen bg-slate-950 text-white px-6 py-8">
       <div className="max-w-5xl mx-auto">
-        <div className="mb-6 flex items-start justify-between gap-4">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-4xl font-extrabold">Athlete Profile</h1>
             <p className="mt-2 text-slate-300">
@@ -192,7 +193,11 @@ export default function CoachAthleteProfilePage() {
             </p>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {Number.isFinite(athleteId) && athleteId > 0 && (
+              <FollowAthleteButton athleteId={athleteId} />
+            )}
+
             <Link
               href="/coach"
               className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-800"
