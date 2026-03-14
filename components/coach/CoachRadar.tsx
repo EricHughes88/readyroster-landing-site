@@ -28,6 +28,7 @@ type RadarAthlete = {
 
   already_following: boolean;
   is_new: boolean;
+  event_count?: number;
 };
 
 type ApiResponse = {
@@ -35,6 +36,30 @@ type ApiResponse = {
   message?: string;
   athletes: RadarAthlete[];
 };
+
+async function fetchWithRetry(url: string, attempts = 2) {
+  let lastError: unknown;
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.message || `Request failed: ${res.status}`);
+      }
+
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
@@ -62,22 +87,11 @@ export default function CoachRadar() {
       setLoading(true);
       setMessage("");
 
-      const res = await fetch("/api/coach/radar", {
-        cache: "no-store",
-      });
-
-      const data: ApiResponse = await res.json();
-
-      if (!data?.ok) {
-        setMessage(data?.message ?? "Failed to load coach radar");
-        setRows([]);
-        return;
-      }
-
+      const data = (await fetchWithRetry("/api/coach/radar")) as ApiResponse;
       setRows(Array.isArray(data.athletes) ? data.athletes : []);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load coach radar:", error);
-      setMessage("Failed to load coach radar");
+      setMessage(error?.message || "Failed to load coach radar");
       setRows([]);
     } finally {
       setLoading(false);
@@ -168,6 +182,12 @@ export default function CoachRadar() {
                   {row.weight_class || "—"}
                 </div>
               </div>
+
+              {typeof row.event_count === "number" && row.event_count > 1 ? (
+                <div className="mt-3 text-sm text-slate-400">
+                  Available for {row.event_count} events
+                </div>
+              ) : null}
 
               {row.notes ? (
                 <div className="mt-4 text-sm text-slate-400">{row.notes}</div>

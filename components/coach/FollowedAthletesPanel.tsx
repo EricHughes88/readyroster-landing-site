@@ -30,6 +30,30 @@ type ApiResponse = {
   athletes: FollowedAthlete[];
 };
 
+async function fetchWithRetry(url: string, attempts = 2) {
+  let lastError: unknown;
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.message || `Request failed: ${res.status}`);
+      }
+
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
+
 function athleteName(row: FollowedAthlete) {
   const full = `${row.firstname ?? ""} ${row.lastname ?? ""}`.trim();
   return full || "Unknown athlete";
@@ -46,6 +70,25 @@ function formatDate(value?: string | null) {
   return d.toLocaleDateString();
 }
 
+function timeAgo(value?: string | null) {
+  if (!value) return "";
+
+  const now = new Date().getTime();
+  const then = new Date(value).getTime();
+  const diff = Math.floor((now - then) / 1000);
+
+  if (diff < 60) return "just now";
+
+  const minutes = Math.floor(diff / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export default function FollowedAthletesPanel() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<FollowedAthlete[]>([]);
@@ -56,22 +99,11 @@ export default function FollowedAthletesPanel() {
       setLoading(true);
       setMessage("");
 
-      const res = await fetch("/api/coach/following-athletes", {
-        cache: "no-store",
-      });
-
-      const data: ApiResponse = await res.json();
-
-      if (!data?.ok) {
-        setMessage(data?.message ?? "Failed to load followed athletes");
-        setRows([]);
-        return;
-      }
-
+      const data = (await fetchWithRetry("/api/coach/following-athletes")) as ApiResponse;
       setRows(Array.isArray(data.athletes) ? data.athletes : []);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load followed athletes:", error);
-      setMessage("Failed to load followed athletes");
+      setMessage(error?.message || "Failed to load followed athletes");
       setRows([]);
     } finally {
       setLoading(false);
@@ -166,8 +198,8 @@ export default function FollowedAthletesPanel() {
                         {row.latest_weight_class || "—"}
                       </div>
                       <div>
-                        <span className="text-slate-500">Updated:</span>{" "}
-                        {formatDate(row.latest_interest_created_at)}
+                        <span className="text-slate-500">Posted:</span>{" "}
+                        {timeAgo(row.latest_interest_created_at)}
                       </div>
                     </div>
 
@@ -190,7 +222,7 @@ export default function FollowedAthletesPanel() {
 
                 {row.latest_interest_id ? (
                   <Link
-                    href={`/parent/wrestlers/${row.wrestler_id}/interests/${row.latest_interest_id}/matches` as const}
+                    href={`/coach/athletes/${row.wrestler_id}` as const}
                     className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
                   >
                     View Interest

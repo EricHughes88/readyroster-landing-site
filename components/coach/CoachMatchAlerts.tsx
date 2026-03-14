@@ -26,6 +26,30 @@ type ApiResponse = {
   alerts: MatchAlert[];
 };
 
+async function fetchWithRetry(url: string, attempts = 2) {
+  let lastError: unknown;
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.message || `Request failed: ${res.status}`);
+      }
+
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
+
 function athleteName(row: MatchAlert) {
   const full = `${row.firstname ?? ""} ${row.lastname ?? ""}`.trim();
   return full || "Unknown athlete";
@@ -64,23 +88,12 @@ export default function CoachMatchAlerts() {
       setLoading(true);
       setMessage("");
 
-      const res = await fetch("/api/coach/match-alerts", {
-        cache: "no-store",
-      });
-
-      const data: ApiResponse = await res.json();
-
-      if (!data?.ok) {
-        setRows([]);
-        setMessage(data?.message ?? "Failed to load match alerts");
-        return;
-      }
-
+      const data = (await fetchWithRetry("/api/coach/match-alerts")) as ApiResponse;
       setRows(Array.isArray(data.alerts) ? data.alerts : []);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load match alerts:", error);
       setRows([]);
-      setMessage("Failed to load match alerts");
+      setMessage(error?.message || "Failed to load match alerts");
     } finally {
       setLoading(false);
     }
@@ -134,7 +147,8 @@ export default function CoachMatchAlerts() {
                   {athleteName(row)} matched your {row.event_name || "event"} need
                 </div>
                 <div className="mt-1 text-sm text-slate-400">
-                  {row.weight_class || "—"} • {row.age_group || "—"} • {locationText(row.city, row.state)}
+                  {row.weight_class || "—"} • {row.age_group || "—"} •{" "}
+                  {locationText(row.city, row.state)}
                 </div>
                 <div className="mt-1 text-xs text-slate-500">
                   {timeAgo(row.created_at)}

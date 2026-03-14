@@ -23,6 +23,30 @@ type ApiResponse = {
   athletes: MapAthlete[];
 };
 
+async function fetchWithRetry(url: string, attempts = 2) {
+  let lastError: unknown;
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.message || `Request failed: ${res.status}`);
+      }
+
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Request failed");
+}
+
 function athleteName(row: MapAthlete) {
   const full = `${row.firstname ?? ""} ${row.lastname ?? ""}`.trim();
   return full || "Unknown athlete";
@@ -44,40 +68,33 @@ export default function RecruitingMap() {
   const [rows, setRows] = useState<MapAthlete[]>([]);
   const [message, setMessage] = useState("");
 
-  async function load() {
+  async function load(nextEvent?: string, nextWeight?: string, nextAge?: string) {
     try {
       setLoading(true);
       setMessage("");
 
       const qs = new URLSearchParams();
-      if (eventName.trim()) qs.set("event", eventName.trim());
-      if (weightClass.trim()) qs.set("weight", weightClass.trim());
-      if (ageGroup.trim()) qs.set("age", ageGroup.trim());
+      const finalEvent = (nextEvent ?? eventName).trim();
+      const finalWeight = (nextWeight ?? weightClass).trim();
+      const finalAge = (nextAge ?? ageGroup).trim();
 
-      const res = await fetch(`/api/coach/map?${qs.toString()}`, {
-        cache: "no-store",
-      });
+      if (finalEvent) qs.set("event", finalEvent);
+      if (finalWeight) qs.set("weight", finalWeight);
+      if (finalAge) qs.set("age", finalAge);
 
-      const data: ApiResponse = await res.json();
-
-      if (!data?.ok) {
-        setRows([]);
-        setMessage(data?.message ?? "Failed to load recruiting map");
-        return;
-      }
-
+      const data = (await fetchWithRetry(`/api/coach/map?${qs.toString()}`)) as ApiResponse;
       setRows(Array.isArray(data.athletes) ? data.athletes : []);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load recruiting map:", error);
       setRows([]);
-      setMessage("Failed to load recruiting map");
+      setMessage(error?.message || "Failed to load recruiting map");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
+    load("", "", "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -157,7 +174,7 @@ export default function RecruitingMap() {
 
         <div className="flex items-end gap-2">
           <button
-            onClick={load}
+            onClick={() => load()}
             disabled={loading}
             className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-60"
           >
@@ -169,7 +186,7 @@ export default function RecruitingMap() {
               setEventName("");
               setWeightClass("");
               setAgeGroup("");
-              setTimeout(() => load(), 0);
+              load("", "", "");
             }}
             className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
           >
