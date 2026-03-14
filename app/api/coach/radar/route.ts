@@ -51,7 +51,7 @@ export async function GET() {
     try {
       const result = await client.query(
         `
-        SELECT DISTINCT ON (wi.wrestler_id, LOWER(COALESCE(wi.event_name, '')))
+        SELECT DISTINCT ON (a.athleteid)
           wi.id AS interest_id,
           wi.wrestler_id,
           wi.event_name,
@@ -61,6 +61,7 @@ export async function GET() {
           wi.notes,
           wi.created_at,
 
+          a.athleteid,
           a.firstname,
           a.lastname,
           a.city,
@@ -79,9 +80,11 @@ export async function GET() {
           END AS already_following,
 
           CASE
-            WHEN wi.created_at >= NOW() - interval '24 hours' THEN true
+            WHEN wi.created_at >= NOW() - interval '3 days' THEN true
             ELSE false
-          END AS is_new
+          END AS is_new,
+
+          COALESCE(ec.event_count, 1) AS event_count
 
         FROM public.coach_needs cn
         INNER JOIN public.wrestler_interests wi
@@ -96,12 +99,20 @@ export async function GET() {
           ON af.wrestler_id = wi.wrestler_id
          AND af.coach_user_id = cn.coach_user_id
 
+        LEFT JOIN (
+          SELECT
+            wrestler_id,
+            COUNT(DISTINCT LOWER(COALESCE(event_name, '')))::int AS event_count
+          FROM public.wrestler_interests
+          GROUP BY wrestler_id
+        ) ec
+          ON ec.wrestler_id = wi.wrestler_id
+
         WHERE cn.coach_user_id = $1
           AND COALESCE(cn.is_open, TRUE) = TRUE
 
         ORDER BY
-          wi.wrestler_id,
-          LOWER(COALESCE(wi.event_name, '')),
+          a.athleteid,
           CASE WHEN af.coach_user_id IS NOT NULL THEN 1 ELSE 0 END ASC,
           wi.created_at DESC,
           wi.id DESC
