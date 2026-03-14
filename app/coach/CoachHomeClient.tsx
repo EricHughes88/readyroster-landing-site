@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
+import CoachMatchAlerts from "@/components/coach/CoachMatchAlerts";
 import CoachRadar from "@/components/coach/CoachRadar";
 import FollowedAthletesPanel from "@/components/coach/FollowedAthletesPanel";
 import RecruitingMap from "@/components/coach/RecruitingMap";
@@ -193,6 +194,7 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-8">
+        {/* Header card */}
         <div className="mb-8 rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -276,18 +278,27 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
           </div>
         </div>
 
+        {/* New Match Alerts */}
+        <div className="mb-8">
+          <CoachMatchAlerts />
+        </div>
+
+        {/* Athlete Availability Radar */}
         <div className="mb-8">
           <CoachRadar />
         </div>
 
+        {/* Athletes You Follow */}
         <div className="mb-8">
           <FollowedAthletesPanel />
         </div>
 
+        {/* Recruiting Map */}
         <div className="mb-8">
           <RecruitingMap />
         </div>
 
+        {/* Recent needs list */}
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">Your Recent Needs</h2>
