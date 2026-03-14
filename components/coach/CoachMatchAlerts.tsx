@@ -120,7 +120,7 @@ export default function CoachMatchAlerts() {
         </div>
       ) : rows.length === 0 ? (
         <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-slate-400">
-          No recent match alerts yet.
+          No new matches in the last 7 days.
         </div>
       ) : (
         <div className="space-y-3">
