@@ -66,6 +66,21 @@ type SessionUser = {
   isSuperAdmin?: boolean;
 };
 
+type RecruitingAlertsSummary = {
+  ok: boolean;
+  sent_last_24h: number;
+  sent_last_7d: number;
+  total_sent: number;
+  latest_sent_at: string | null;
+};
+
+type CoachLeadRunResult = {
+  ok: boolean;
+  coachNeedsWithLeads?: number;
+  emailsSent?: number;
+  message?: string;
+};
+
 function clampDays(n: number) {
   if (!Number.isFinite(n)) return 30;
   return Math.max(1, Math.min(365, Math.floor(n)));
@@ -140,6 +155,8 @@ export default function AdminDashboardPage() {
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [traction, setTraction] = useState<TractionRow[]>([]);
   const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [alertsSummary, setAlertsSummary] =
+    useState<RecruitingAlertsSummary | null>(null);
 
   const [updatedAt, setUpdatedAt] = useState<string>("");
 
@@ -150,6 +167,11 @@ export default function AdminDashboardPage() {
   const [sortKey, setSortKey] = useState<SortKey>("coach_needs");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
 
+  const [coachLeadLoading, setCoachLeadLoading] = useState(false);
+  const [coachLeadError, setCoachLeadError] = useState<string | null>(null);
+  const [coachLeadResult, setCoachLeadResult] =
+    useState<CoachLeadRunResult | null>(null);
+
   async function fetchSessionUser(): Promise<SessionUser | null> {
     try {
       const res = await fetch("/api/auth/session", { cache: "no-store" });
@@ -158,6 +180,31 @@ export default function AdminDashboardPage() {
       return (data?.user as SessionUser) ?? null;
     } catch {
       return null;
+    }
+  }
+
+  async function runCoachLeads() {
+    try {
+      setCoachLeadLoading(true);
+      setCoachLeadError(null);
+      setCoachLeadResult(null);
+
+      const res = await fetch("/api/admin/coach-leads/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.message || "Failed to run coach leads");
+      }
+
+      setCoachLeadResult(data);
+    } catch (e: any) {
+      setCoachLeadError(String(e?.message ?? e));
+    } finally {
+      setCoachLeadLoading(false);
     }
   }
 
@@ -187,17 +234,21 @@ export default function AdminDashboardPage() {
 
         const d = clampDays(days);
 
-        const [ovRes, trRes, fdRes] = await Promise.all([
+        const [ovRes, trRes, fdRes, raRes] = await Promise.all([
           fetch(`/api/admin/analytics/overview?days=${d}`, { cache: "no-store" }),
           fetch(`/api/admin/analytics/event-traction?days=${d}&limit=50`, {
             cache: "no-store",
           }),
           fetch(`/api/admin/analytics/feed?limit=60`, { cache: "no-store" }),
+          fetch(`/api/admin/analytics/recruiting-alerts`, {
+            cache: "no-store",
+          }),
         ]);
 
         const ov: OverviewResponse = await ovRes.json();
         const tr: TractionResponse = await trRes.json();
         const fd: FeedResponse = await fdRes.json();
+        const ra: RecruitingAlertsSummary = await raRes.json();
 
         if (!ovRes.ok || !ov?.ok) {
           throw new Error((ov as any)?.message || "Failed overview");
@@ -207,6 +258,11 @@ export default function AdminDashboardPage() {
         }
         if (!fdRes.ok || !fd?.ok) {
           throw new Error((fd as any)?.message || "Failed feed");
+        }
+        if (!raRes.ok || !ra?.ok) {
+          throw new Error(
+            (ra as any)?.message || "Failed recruiting alerts analytics"
+          );
         }
 
         if (cancelled) return;
@@ -232,6 +288,7 @@ export default function AdminDashboardPage() {
         const items = pickArray<FeedItem>(fd, ["rows", "feed", "data", "items"]);
         setFeed(items);
 
+        setAlertsSummary(ra);
         setUpdatedAt(new Date().toLocaleString());
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message ?? e));
@@ -263,7 +320,9 @@ export default function AdminDashboardPage() {
     const needle = q.trim().toLowerCase();
 
     const base = needle
-      ? traction.filter((r) => displayEventName(r).toLowerCase().includes(needle))
+      ? traction.filter((r) =>
+          displayEventName(r).toLowerCase().includes(needle)
+        )
       : traction.slice();
 
     const dir = sortDir === "asc" ? 1 : -1;
@@ -316,6 +375,20 @@ export default function AdminDashboardPage() {
     cursor: "pointer",
     padding: 0,
     fontWeight: 800,
+  };
+
+  const actionBtnBase: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid transparent",
+    color: "#fff",
+    padding: "8px 14px",
+    borderRadius: 10,
+    fontWeight: 800,
+    cursor: "pointer",
+    minHeight: 36,
+    whiteSpace: "nowrap",
   };
 
   return (
@@ -503,7 +576,7 @@ export default function AdminDashboardPage() {
         style={{
           marginTop: 16,
           display: "grid",
-          gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+          gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
           gap: 12,
         }}
       >
@@ -513,6 +586,7 @@ export default function AdminDashboardPage() {
           ["Needs posted", toNum(totals?.needs_posted)],
           ["Match requests", toNum(totals?.match_requests)],
           ["Messages sent", toNum(totals?.messages_sent)],
+          ["Recruiting alerts (24h)", toNum(alertsSummary?.sent_last_24h)],
         ].map(([label, value]) => (
           <div
             key={String(label)}
@@ -539,6 +613,121 @@ export default function AdminDashboardPage() {
       </section>
 
       {isSuperAdmin ? <RecruitingAlertsRunner /> : null}
+
+      {isSuperAdmin ? (
+        <section
+          style={{
+            marginTop: 14,
+            border: "1px solid #334155",
+            borderRadius: 12,
+            padding: 12,
+            background: "rgba(2,6,23,0.35)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ color: "#fff", fontWeight: 800 }}>Coach Leads</div>
+              <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>
+                Run the coach lead digest to send matching athlete leads to coaches.
+              </div>
+            </div>
+
+            <button
+              onClick={runCoachLeads}
+              disabled={coachLeadLoading}
+              style={{
+                ...actionBtnBase,
+                background: coachLeadLoading ? "#1d4ed8" : "#2563eb",
+                borderColor: "#1d4ed8",
+                opacity: coachLeadLoading ? 0.8 : 1,
+                cursor: coachLeadLoading ? "not-allowed" : "pointer",
+              }}
+            >
+              {coachLeadLoading ? "Running..." : "Run Coach Leads"}
+            </button>
+          </div>
+
+          {coachLeadError ? (
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                border: "1px solid #f99",
+                borderRadius: 10,
+                background: "#fff5f5",
+                color: "#111",
+              }}
+            >
+              <b>Error:</b> {coachLeadError}
+            </div>
+          ) : null}
+
+          {coachLeadResult ? (
+            <div
+              style={{
+                marginTop: 12,
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 10,
+              }}
+            >
+              <div
+                style={{
+                  border: "1px solid #334155",
+                  borderRadius: 10,
+                  padding: 12,
+                  background: "rgba(15,23,42,0.45)",
+                }}
+              >
+                <div style={{ color: "#94a3b8", fontSize: 12 }}>
+                  Coach needs with leads
+                </div>
+                <div
+                  style={{
+                    color: "#fff",
+                    fontSize: 22,
+                    fontWeight: 900,
+                    marginTop: 6,
+                  }}
+                >
+                  {toNum(coachLeadResult.coachNeedsWithLeads)}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid #334155",
+                  borderRadius: 10,
+                  padding: 12,
+                  background: "rgba(15,23,42,0.45)",
+                }}
+              >
+                <div style={{ color: "#94a3b8", fontSize: 12 }}>
+                  Coach lead emails sent
+                </div>
+                <div
+                  style={{
+                    color: "#fff",
+                    fontSize: 22,
+                    fontWeight: 900,
+                    marginTop: 6,
+                  }}
+                >
+                  {toNum(coachLeadResult.emailsSent)}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section
         style={{
@@ -658,7 +847,10 @@ export default function AdminDashboardPage() {
                   </button>
                 </th>
                 <th style={{ padding: "10px 12px" }}>
-                  <button style={thBtn} onClick={() => toggleSort("coach_needs")}>
+                  <button
+                    style={thBtn}
+                    onClick={() => toggleSort("coach_needs")}
+                  >
                     Coach needs{" "}
                     {sortKey === "coach_needs"
                       ? sortDir === "asc"
@@ -757,7 +949,13 @@ export default function AdminDashboardPage() {
                     <td style={{ padding: "10px 12px" }}>
                       {toNum(r.unique_athletes)}
                     </td>
-                    <td style={{ padding: "10px 12px", color: gapColor, fontWeight: 800 }}>
+                    <td
+                      style={{
+                        padding: "10px 12px",
+                        color: gapColor,
+                        fontWeight: 800,
+                      }}
+                    >
                       {gap > 0 ? `+${gap}` : gap}
                     </td>
                   </tr>
@@ -822,7 +1020,9 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
                 {f.message ? (
-                  <div style={{ marginTop: 6, color: "#cbd5e1" }}>{f.message}</div>
+                  <div style={{ marginTop: 6, color: "#cbd5e1" }}>
+                    {f.message}
+                  </div>
                 ) : null}
               </div>
             ))

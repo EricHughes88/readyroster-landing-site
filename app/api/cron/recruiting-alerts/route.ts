@@ -1,6 +1,7 @@
 // app/api/cron/recruiting-alerts/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { runRecruitingAlerts } from "@/lib/recruitingAlerts";
+import { acquireJobLock, releaseJobLock } from "@/lib/jobLock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,8 @@ function isAuthorized(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const jobName = "recruiting-alerts-cron";
+
   try {
     if (!isAuthorized(req)) {
       return NextResponse.json(
@@ -26,14 +29,32 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const lock = await acquireJobLock(jobName, 15);
+
+    if (!lock.acquired) {
+      return NextResponse.json({
+        ok: true,
+        source: "cron",
+        skipped: true,
+        message: "Job already running",
+      });
+    }
+
     const result = await runRecruitingAlerts();
+
+    await releaseJobLock(jobName, "success");
 
     return NextResponse.json({
       source: "cron",
+      skipped: false,
       ...result,
     });
   } catch (err: any) {
     console.error("cron recruiting alerts error", err);
+
+    try {
+      await releaseJobLock(jobName, "failed");
+    } catch {}
 
     return NextResponse.json(
       {
