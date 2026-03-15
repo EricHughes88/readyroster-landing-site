@@ -4,6 +4,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
+import RecruitingAlertsRunner from "@/components/admin/RecruitingAlertsRunner";
 
 type OverviewResponse = {
   ok: boolean;
@@ -172,9 +173,7 @@ export default function AdminDashboardPage() {
 
       const email = String(u?.email ?? "").toLowerCase();
 
-      setIsSuperAdmin(
-        Boolean(u?.isSuperAdmin) || superEmails.includes(email)
-      );
+      setIsSuperAdmin(Boolean(u?.isSuperAdmin) || superEmails.includes(email));
     })();
   }, []);
 
@@ -264,9 +263,7 @@ export default function AdminDashboardPage() {
     const needle = q.trim().toLowerCase();
 
     const base = needle
-      ? traction.filter((r) =>
-          displayEventName(r).toLowerCase().includes(needle)
-        )
+      ? traction.filter((r) => displayEventName(r).toLowerCase().includes(needle))
       : traction.slice();
 
     const dir = sortDir === "asc" ? 1 : -1;
@@ -339,7 +336,14 @@ export default function AdminDashboardPage() {
         }}
       >
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
             <h1
               style={{
                 fontSize: 34,
@@ -390,7 +394,14 @@ export default function AdminDashboardPage() {
             justifyContent: "flex-end",
           }}
         >
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <Link
               href={"/admin/athletes" as Route}
               prefetch={false}
@@ -527,6 +538,8 @@ export default function AdminDashboardPage() {
         ))}
       </section>
 
+      {isSuperAdmin ? <RecruitingAlertsRunner /> : null}
+
       <section
         style={{
           marginTop: 14,
@@ -645,10 +658,7 @@ export default function AdminDashboardPage() {
                   </button>
                 </th>
                 <th style={{ padding: "10px 12px" }}>
-                  <button
-                    style={thBtn}
-                    onClick={() => toggleSort("coach_needs")}
-                  >
+                  <button style={thBtn} onClick={() => toggleSort("coach_needs")}>
                     Coach needs{" "}
                     {sortKey === "coach_needs"
                       ? sortDir === "asc"
@@ -715,6 +725,11 @@ export default function AdminDashboardPage() {
             <tbody>
               {filteredSortedTraction.map((r, idx) => {
                 const name = displayEventName(r);
+                const gap = toNum(r.supply_gap);
+
+                let gapColor = "#e5e7eb";
+                if (gap > 0) gapColor = "#86efac";
+                if (gap < 0) gapColor = "#fca5a5";
 
                 return (
                   <tr
@@ -742,8 +757,8 @@ export default function AdminDashboardPage() {
                     <td style={{ padding: "10px 12px" }}>
                       {toNum(r.unique_athletes)}
                     </td>
-                    <td style={{ padding: "10px 12px" }}>
-                      {toNum(r.supply_gap)}
+                    <td style={{ padding: "10px 12px", color: gapColor, fontWeight: 800 }}>
+                      {gap > 0 ? `+${gap}` : gap}
                     </td>
                   </tr>
                 );
@@ -807,9 +822,7 @@ export default function AdminDashboardPage() {
                   </div>
                 </div>
                 {f.message ? (
-                  <div style={{ marginTop: 6, color: "#cbd5e1" }}>
-                    {f.message}
-                  </div>
+                  <div style={{ marginTop: 6, color: "#cbd5e1" }}>{f.message}</div>
                 ) : null}
               </div>
             ))
