@@ -17,7 +17,7 @@ const pool = process.env.DATABASE_URL
 
 const CreateSchema = z.object({
   eventName: z.string().min(1),
-  eventDate: z.string().trim().optional().nullable(), // YYYY-MM-DD
+  eventDate: z.string().trim().optional().nullable(),
   weightClass: z.string().min(1),
   ageGroup: z.string().min(1),
   notes: z.string().optional().nullable(),
@@ -82,11 +82,9 @@ export async function GET(
     const where: string[] = [
       "wrestler_id = $1",
       "COALESCE(is_visible, TRUE) = TRUE",
-      "(",
-      "  event_date IS NULL",
-      "  OR event_date::date >= CURRENT_DATE - INTERVAL '2 days'",
-      ")",
+      "(event_date IS NULL OR event_date::date >= CURRENT_DATE - INTERVAL '2 days')",
     ];
+
     const params: any[] = [wid];
 
     if (eventName) {
@@ -102,7 +100,7 @@ export async function GET(
     if (onlyOk === "parent") where.push("COALESCE(parent_ok, false) = true");
     if (onlyOk === "coach") where.push("COALESCE(coach_ok, false) = true");
 
-    const whereSql = where.length ? "WHERE " + where.join(" AND ") : "";
+    const whereSql = "WHERE " + where.join(" AND ");
 
     const client = await pool.connect();
     try {
@@ -116,7 +114,7 @@ export async function GET(
       );
       const total = countRes.rows[0]?.c ?? 0;
 
-      params.push(limit, offset);
+      const queryParams = [...params, limit, offset];
 
       const res = await client.query(
         `
@@ -136,9 +134,9 @@ export async function GET(
         FROM public.wrestler_interests
         ${whereSql}
         ORDER BY ${sortCol} ${sortDir}
-        LIMIT $${params.length - 1} OFFSET $${params.length}
+        LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}
         `,
-        params
+        queryParams
       );
 
       return NextResponse.json({
@@ -149,10 +147,10 @@ export async function GET(
     } finally {
       client.release();
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error("interests GET error:", e);
     return NextResponse.json(
-      { ok: false, message: "Server error" },
+      { ok: false, message: e?.message || "Server error" },
       { status: 500 }
     );
   }
@@ -261,7 +259,7 @@ export async function POST(
           await notifyAthleteFollowersOnNewInterest({
             wrestlerId: wid,
             athleteName: wrestlerName,
-            eventName: eventName,
+            eventName,
             eventDate: eventDate || null,
             weightClass: weightClass || null,
             ageGroup: ageGroup || null,
@@ -282,10 +280,10 @@ export async function POST(
     } finally {
       client.release();
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error("interests POST error:", e);
     return NextResponse.json(
-      { ok: false, message: "Server error" },
+      { ok: false, message: e?.message || "Server error" },
       { status: 500 }
     );
   }
