@@ -153,10 +153,19 @@ export async function GET(
       const iAge = pick(interestCols, "age_group", "agegroup");
       const iWeight = pick(interestCols, "weight_class", "weightclass");
       const iNotes = pick(interestCols, "notes");
+      const iVisible = pick(interestCols, "is_visible");
 
       let interests: any[] = [];
 
       if (iId && iWrestlerId) {
+        const visibilitySql = iVisible
+          ? `AND COALESCE(${iVisible}, TRUE) = TRUE`
+          : "";
+
+        const eventDateSql = iDate
+          ? `AND (${iDate} IS NULL OR ${iDate}::date >= CURRENT_DATE - INTERVAL '2 days')`
+          : "";
+
         const interestsSql = `
           SELECT
             ${iId} AS id,
@@ -167,6 +176,8 @@ export async function GET(
             ${iNotes ? `${iNotes} AS notes` : `NULL::text AS notes`}
           FROM public.${interestsTable}
           WHERE ${iWrestlerId} = $1
+            ${visibilitySql}
+            ${eventDateSql}
           ORDER BY ${iDate ? `${iDate} DESC NULLS LAST,` : ""} ${iId} DESC
         `;
 

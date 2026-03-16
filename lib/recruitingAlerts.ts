@@ -76,6 +76,7 @@ async function getOpenCoachNeeds(): Promise<CoachNeedRow[]> {
       cn.state
     FROM public.coach_needs cn
     WHERE cn.is_open = TRUE
+      AND COALESCE(cn.is_visible, TRUE) = TRUE
       AND cn.event_date IS NOT NULL
       AND cn.event_date >= CURRENT_DATE
       AND COALESCE(NULLIF(TRIM(cn.event_name), ''), '') <> ''
@@ -122,6 +123,7 @@ async function findCandidatesForNeed(
       ON u.user_id = a.userid
     WHERE COALESCE(UPPER(TRIM(wi.weight_class)), '') = UPPER(TRIM($1))
       AND COALESCE(UPPER(TRIM(wi.age_group)), '') = UPPER(TRIM($2))
+      AND COALESCE(wi.is_visible, TRUE) = TRUE
       AND wi.created_at >= NOW() - INTERVAL '120 days'
       ${stateClause}
       AND COALESCE(NULLIF(TRIM(COALESCE(u.email, a.parent_email)), ''), '') <> ''

@@ -48,7 +48,7 @@ export async function GET(
 
     const client = await pool.connect();
     try {
-      // 1) Load need
+      // 1) Load need only if it is still visible/current
       const needRes = await client.query(
         `
         SELECT
@@ -61,22 +61,31 @@ export async function GET(
           weight_class,
           city,
           state,
-          notes
+          notes,
+          is_visible,
+          expired_at
         FROM coach_needs
         WHERE id = $1
+          AND COALESCE(is_visible, TRUE) = TRUE
+          AND (
+            event_date IS NULL
+            OR event_date::date >= CURRENT_DATE - INTERVAL '2 days'
+          )
         `,
         [needId]
       );
 
-      if (needRes.rowCount === 0) return jsonError("Need not found.", 404);
+      if (needRes.rowCount === 0) {
+        return jsonError("Need not found or no longer active.", 404);
+      }
 
       const need = needRes.rows[0];
 
-      // If key is missing (older rows), derive it on the fly (and you can backfill later)
+      // If key is missing (older rows), derive it on the fly
       const needAgeKey: string | null =
         need.age_group_key ?? normalizeAgeGroup(need.age_group) ?? null;
 
-      // 2) Find matching interests by KEY
+      // 2) Find matching interests only if they are still visible/current
       const matchesRes = await client.query<Candidate>(
         `
         SELECT
@@ -106,6 +115,11 @@ export async function GET(
             wi.age_group_key = $4
             OR (wi.age_group_key IS NULL AND wi.age_group = $5)
           )
+          AND COALESCE(wi.is_visible, TRUE) = TRUE
+          AND (
+            wi.event_date IS NULL
+            OR wi.event_date::date >= CURRENT_DATE - INTERVAL '2 days'
+          )
         ORDER BY
           (m.id IS NOT NULL),
           w.last_name NULLS LAST,
@@ -117,7 +131,7 @@ export async function GET(
           need.event_name,
           need.weight_class,
           needAgeKey,
-          need.age_group, // fallback for old data before backfill
+          need.age_group,
         ]
       );
 

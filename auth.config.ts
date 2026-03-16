@@ -50,10 +50,13 @@ function getIpFromHeaders(headers?: any): string | null {
   if (typeof fwd === "string" && fwd.trim()) {
     return fwd.split(",")[0]?.trim() || null;
   }
+
   const real =
     headers?.get?.("x-real-ip") ??
     headers?.["x-real-ip"] ??
-    headers?.get?.("cf-connecting-ip");
+    headers?.get?.("cf-connecting-ip") ??
+    headers?.["cf-connecting-ip"];
+
   return typeof real === "string" && real.trim() ? real.trim() : null;
 }
 
@@ -78,10 +81,10 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
 
-      // NOTE: CredentialsProvider authorize supports (credentials, req)
       async authorize(creds, req): Promise<User | null> {
         const email = String(creds?.email ?? "").trim().toLowerCase();
         const password = String(creds?.password ?? "");
+
         if (!email || !password) return null;
 
         const pool = getPool();
@@ -96,9 +99,20 @@ export const authOptions: NextAuthOptions = {
         try {
           const { rows } = await pool.query(
             `
-              SELECT id, email, password_hash, role, firstname, lastname, name
+              SELECT
+                id,
+                email,
+                password_hash,
+                role,
+                firstname,
+                lastname,
+                name,
+                COALESCE(is_active, TRUE) AS is_active,
+                deleted_at
               FROM public.users
               WHERE LOWER(email) = LOWER($1)
+                AND COALESCE(is_active, TRUE) = TRUE
+                AND deleted_at IS NULL
               LIMIT 1
             `,
             [email]
@@ -174,6 +188,7 @@ export const authOptions: NextAuthOptions = {
       }
       return token;
     },
+
     async session({ session, token }: { session: Session; token: JWT }) {
       session.user = {
         id: String((token as any)?.uid ?? ""),

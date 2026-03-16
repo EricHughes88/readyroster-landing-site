@@ -58,7 +58,7 @@ export async function GET(
     const url = new URL(req.url);
     const eventName = url.searchParams.get("eventName") || "";
     const ageGroup = url.searchParams.get("ageGroup") || "";
-    const onlyOk = url.searchParams.get("onlyOk") || ""; // "parent" | "coach" | ""
+    const onlyOk = url.searchParams.get("onlyOk") || "";
     const limit = Math.min(
       Math.max(Number(url.searchParams.get("limit") || 10), 1),
       100
@@ -79,7 +79,14 @@ export async function GET(
       }
     }
 
-    const where: string[] = ["wrestler_id = $1"];
+    const where: string[] = [
+      "wrestler_id = $1",
+      "COALESCE(is_visible, TRUE) = TRUE",
+      "(",
+      "  event_date IS NULL",
+      "  OR event_date::date >= CURRENT_DATE - INTERVAL '2 days'",
+      ")",
+    ];
     const params: any[] = [wid];
 
     if (eventName) {
@@ -123,7 +130,9 @@ export async function GET(
           notes,
           parent_ok,
           coach_ok,
-          created_at
+          created_at,
+          is_visible,
+          expired_at
         FROM public.wrestler_interests
         ${whereSql}
         ORDER BY ${sortCol} ${sortDir}
@@ -190,7 +199,6 @@ export async function POST(
 
     const client = await pool.connect();
     try {
-      // Make sure this wrestlerId is a real wrestler record
       const wrestlerCheck = await client.query<{
         id: number;
         first_name: string | null;
@@ -225,8 +233,16 @@ export async function POST(
       const r = await client.query<{ id: number }>(
         `
         INSERT INTO public.wrestler_interests
-          (wrestler_id, event_name, event_date, weight_class, age_group, notes)
-        VALUES ($1, $2, $3::date, $4, $5, $6)
+          (
+            wrestler_id,
+            event_name,
+            event_date,
+            weight_class,
+            age_group,
+            notes,
+            is_visible
+          )
+        VALUES ($1, $2, $3::date, $4, $5, $6, TRUE)
         RETURNING id
         `,
         [wid, eventName, eventDate || null, weightClass, ageGroup, notes || null]

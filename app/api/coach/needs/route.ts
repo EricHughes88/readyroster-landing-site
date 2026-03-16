@@ -48,10 +48,22 @@ export async function GET(req: NextRequest) {
         cn.state,
         cn.notes,
         cn.is_open,
-        cn.created_at
+        cn.created_at,
+        CASE
+          WHEN COALESCE(cn.is_open, TRUE) = FALSE THEN 'closed'
+          ELSE 'open'
+        END AS status
       FROM public.coach_needs cn
       WHERE cn.coach_user_id = $1
-      ORDER BY cn.created_at DESC, cn.id DESC
+        AND COALESCE(cn.is_visible, TRUE) = TRUE
+        AND (
+          cn.event_date IS NULL
+          OR cn.event_date::date >= CURRENT_DATE - INTERVAL '2 days'
+        )
+      ORDER BY
+        cn.event_date ASC NULLS LAST,
+        cn.created_at DESC,
+        cn.id DESC
       LIMIT $2
       `,
       [coachUserId, limit]
@@ -136,9 +148,10 @@ export async function POST(req: Request) {
           age_group,
           city,
           state,
-          notes
+          notes,
+          is_visible
         )
-        VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, TRUE)
         RETURNING
           id,
           coach_user_id,
@@ -150,7 +163,12 @@ export async function POST(req: Request) {
           state,
           notes,
           is_open,
-          created_at
+          is_visible,
+          created_at,
+          CASE
+            WHEN COALESCE(is_open, TRUE) = FALSE THEN 'closed'
+            ELSE 'open'
+          END AS status
         `,
         [
           coachUserId,

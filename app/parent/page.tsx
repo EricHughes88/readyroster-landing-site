@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSessionUser } from "@/lib/session";
+import DeleteAccountButton from "@/components/account/DeleteAccountButton";
 
 type RRRole = "Coach" | "Parent" | "Athlete" | "Admin";
 
@@ -180,7 +181,7 @@ export default function ParentDashboardPage() {
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 text-slate-100">
       <header className="mb-8">
-        <h1 className="text-3xl font-semibold mb-2">Parent Dashboard</h1>
+        <h1 className="mb-2 text-3xl font-semibold">Parent Dashboard</h1>
         <p className="text-slate-300">
           Manage your wrestler profiles, interests, matches, and messages.
         </p>
@@ -189,9 +190,9 @@ export default function ParentDashboardPage() {
       <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <Link
           href="/parent/wrestlers"
-          className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5 hover:border-slate-500 hover:bg-slate-900/90 transition-colors"
+          className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5 transition-colors hover:border-slate-500 hover:bg-slate-900/90"
         >
-          <h2 className="font-semibold mb-1">My Wrestlers</h2>
+          <h2 className="mb-1 font-semibold">My Wrestlers</h2>
           <p className="text-xs text-slate-300">
             View and manage wrestler profiles you&apos;ve added.
           </p>
@@ -199,9 +200,9 @@ export default function ParentDashboardPage() {
 
         <Link
           href="/parent/wrestlers/new"
-          className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5 hover:border-slate-500 hover:bg-slate-900/90 transition-colors"
+          className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5 transition-colors hover:border-slate-500 hover:bg-slate-900/90"
         >
-          <h2 className="font-semibold mb-1">Add Wrestler</h2>
+          <h2 className="mb-1 font-semibold">Add Wrestler</h2>
           <p className="text-xs text-slate-300">
             Create a new wrestler profile to get started.
           </p>
@@ -209,9 +210,9 @@ export default function ParentDashboardPage() {
 
         <Link
           href="/parent/matches"
-          className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5 hover:border-slate-500 hover:bg-slate-900/90 transition-colors"
+          className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5 transition-colors hover:border-slate-500 hover:bg-slate-900/90"
         >
-          <h2 className="font-semibold mb-1">Matches</h2>
+          <h2 className="mb-1 font-semibold">Matches</h2>
           <p className="text-xs text-slate-300">
             Review pending and confirmed team matches.
           </p>
@@ -219,9 +220,9 @@ export default function ParentDashboardPage() {
 
         <Link
           href="/parent/messages"
-          className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5 hover:border-slate-500 hover:bg-slate-900/90 transition-colors"
+          className="rounded-2xl border border-slate-700 bg-slate-900/60 p-5 transition-colors hover:border-slate-500 hover:bg-slate-900/90"
         >
-          <h2 className="font-semibold mb-1">Messages</h2>
+          <h2 className="mb-1 font-semibold">Messages</h2>
           <p className="text-xs text-slate-300">
             Chat with coaches once a match is made.
           </p>
@@ -455,6 +456,14 @@ export default function ParentDashboardPage() {
             })}
           </div>
         )}
+      </section>
+
+      <section className="mt-10">
+        <h2 className="mb-3 text-lg font-semibold">Account Settings</h2>
+
+        <div className="max-w-md">
+          <DeleteAccountButton />
+        </div>
       </section>
     </main>
   );

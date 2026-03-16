@@ -149,6 +149,16 @@ export async function GET() {
           a.userid = $1
           AND m.wrestler_interest_id IS NULL
           AND t.teamname IS NOT NULL
+          AND COALESCE(wi.is_visible, TRUE) = TRUE
+          AND COALESCE(cn.is_visible, TRUE) = TRUE
+          AND (
+            wi.event_date IS NULL
+            OR wi.event_date::date >= CURRENT_DATE - INTERVAL '2 days'
+          )
+          AND (
+            cn.event_date IS NULL
+            OR cn.event_date::date >= CURRENT_DATE - INTERVAL '2 days'
+          )
 
         ORDER BY
           cn.coach_user_id,
@@ -203,6 +213,11 @@ export async function GET() {
         WHERE
           pv.target_type = 'athlete'
           AND a.userid = $1
+          AND COALESCE(wi.is_visible, TRUE) = TRUE
+          AND (
+            wi.event_date IS NULL
+            OR wi.event_date::date >= CURRENT_DATE - INTERVAL '2 days'
+          )
 
         ORDER BY
           pv.viewer_user_id,
@@ -297,6 +312,16 @@ export async function GET() {
         WHERE
           cn.coach_user_id = $1
           AND m.wrestler_interest_id IS NULL
+          AND COALESCE(wi.is_visible, TRUE) = TRUE
+          AND COALESCE(cn.is_visible, TRUE) = TRUE
+          AND (
+            wi.event_date IS NULL
+            OR wi.event_date::date >= CURRENT_DATE - INTERVAL '2 days'
+          )
+          AND (
+            cn.event_date IS NULL
+            OR cn.event_date::date >= CURRENT_DATE - INTERVAL '2 days'
+          )
 
         ORDER BY
           wi.id,

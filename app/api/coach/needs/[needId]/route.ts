@@ -14,11 +14,14 @@ const pool = process.env.DATABASE_URL
 function normalizeDate(input?: string | Date | null): string | null {
   if (!input) return null;
   if (input instanceof Date && !isNaN(+input)) return input.toISOString().slice(0, 10);
+
   if (typeof input === "string") {
     const s = input.trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
     const d = new Date(s);
     if (!isNaN(+d)) return d.toISOString().slice(0, 10);
+
     const parts = s.split(/[^\d]/).map(Number);
     if (parts.length >= 3) {
       const [m, d2, y] = parts;
@@ -28,6 +31,7 @@ function normalizeDate(input?: string | Date | null): string | null {
       }
     }
   }
+
   return null;
 }
 
@@ -36,19 +40,30 @@ async function readBody(req: Request): Promise<Record<string, any>> {
   const ct = (req.headers.get("content-type") || "").toLowerCase();
 
   if (ct.includes("application/json")) {
-    try { return await req.json(); } catch {}
+    try {
+      return await req.json();
+    } catch {}
   }
+
   if (ct.includes("application/x-www-form-urlencoded")) {
     const params = new URLSearchParams(await req.text());
     return Object.fromEntries(params.entries());
   }
+
   try {
     const fd = await req.formData();
     const out: Record<string, any> = {};
-    fd.forEach((v, k) => (out[k] = typeof v === "string" ? v : (v as File).name));
+    fd.forEach((v, k) => {
+      out[k] = typeof v === "string" ? v : (v as File).name;
+    });
     if (Object.keys(out).length) return out;
   } catch {}
-  try { return await req.json(); } catch { return {}; }
+
+  try {
+    return await req.json();
+  } catch {
+    return {};
+  }
 }
 
 const UpdateSchema = z.object({
@@ -67,21 +82,46 @@ export async function PATCH(
   ctx: { params: Promise<{ needId: string }> }
 ) {
   try {
-    if (!pool) return NextResponse.json({ ok: false, message: "DB not configured" }, { status: 500 });
+    if (!pool) {
+      return NextResponse.json(
+        { ok: false, message: "DB not configured" },
+        { status: 500 }
+      );
+    }
+
     const { needId } = await ctx.params;
     const idNum = Number(needId);
-    if (!idNum) return NextResponse.json({ ok: false, message: "Invalid id" }, { status: 400 });
+
+    if (!idNum) {
+      return NextResponse.json(
+        { ok: false, message: "Invalid id" },
+        { status: 400 }
+      );
+    }
 
     const raw = await readBody(req);
-    if (raw.event_date !== undefined) raw.event_date = normalizeDate(raw.event_date);
+    if (raw.event_date !== undefined) {
+      raw.event_date = normalizeDate(raw.event_date);
+    }
 
     const parsed = UpdateSchema.safeParse(raw);
     if (!parsed.success) {
-      return NextResponse.json({ ok: false, message: "Invalid input", issues: parsed.error.issues }, { status: 400 });
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Invalid input",
+          issues: parsed.error.issues,
+        },
+        { status: 400 }
+      );
     }
+
     const updates = parsed.data;
     if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ ok: false, message: "No fields to update" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, message: "No fields to update" },
+        { status: 400 }
+      );
     }
 
     const sets: string[] = [];
@@ -92,28 +132,53 @@ export async function PATCH(
       sets.push(`${k} = $${i++}`);
       values.push(v === undefined ? null : v);
     }
+
     values.push(idNum);
 
     const sql = `
       UPDATE public.coach_needs
          SET ${sets.join(", ")}
        WHERE id = $${i}
-       RETURNING id, coach_user_id, event_name, event_date, weight_class, age_group, city, state, notes, is_open, created_at
+       RETURNING
+         id,
+         coach_user_id,
+         event_name,
+         event_date,
+         weight_class,
+         age_group,
+         city,
+         state,
+         notes,
+         is_open,
+         is_visible,
+         expired_at,
+         created_at
     `;
 
     const client = await pool.connect();
     try {
       const res = await client.query(sql, values);
+
       if (res.rowCount === 0) {
-        return NextResponse.json({ ok: false, message: "Need not found" }, { status: 404 });
+        return NextResponse.json(
+          { ok: false, message: "Need not found" },
+          { status: 404 }
+        );
       }
-      return NextResponse.json({ ok: true, need: res.rows[0] }, { status: 200 });
+
+      return NextResponse.json(
+        { ok: true, need: res.rows[0] },
+        { status: 200 }
+      );
     } finally {
       client.release();
     }
   } catch (err) {
     console.error("Coach need PATCH error:", err);
-    return NextResponse.json({ ok: false, message: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, message: "Server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -122,20 +187,55 @@ export async function DELETE(
   ctx: { params: Promise<{ needId: string }> }
 ) {
   try {
-    if (!pool) return NextResponse.json({ ok: false, message: "DB not configured" }, { status: 500 });
+    if (!pool) {
+      return NextResponse.json(
+        { ok: false, message: "DB not configured" },
+        { status: 500 }
+      );
+    }
+
     const { needId } = await ctx.params;
     const idNum = Number(needId);
-    if (!idNum) return NextResponse.json({ ok: false, message: "Invalid id" }, { status: 400 });
+
+    if (!idNum) {
+      return NextResponse.json(
+        { ok: false, message: "Invalid id" },
+        { status: 400 }
+      );
+    }
 
     const client = await pool.connect();
     try {
-      const res = await client.query(`DELETE FROM public.coach_needs WHERE id = $1`, [idNum]);
-      return NextResponse.json({ ok: true, deleted: res.rowCount }, { status: 200 });
+      const res = await client.query(
+        `
+        UPDATE public.coach_needs
+        SET is_visible = FALSE,
+            expired_at = NOW()
+        WHERE id = $1
+        RETURNING id
+        `,
+        [idNum]
+      );
+
+      if (res.rowCount === 0) {
+        return NextResponse.json(
+          { ok: false, message: "Need not found" },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json(
+        { ok: true, deleted: 1 },
+        { status: 200 }
+      );
     } finally {
       client.release();
     }
   } catch (err) {
     console.error("Coach need DELETE error:", err);
-    return NextResponse.json({ ok: false, message: "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, message: "Server error" },
+      { status: 500 }
+    );
   }
 }

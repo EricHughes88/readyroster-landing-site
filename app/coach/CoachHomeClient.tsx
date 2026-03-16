@@ -9,6 +9,7 @@ import CoachMatchAlerts from "@/components/coach/CoachMatchAlerts";
 import CoachRadar from "@/components/coach/CoachRadar";
 import FollowedAthletesPanel from "@/components/coach/FollowedAthletesPanel";
 import RecruitingMap from "@/components/coach/RecruitingMap";
+import DeleteAccountButton from "@/components/account/DeleteAccountButton";
 
 type UserLike = {
   id: number | string;
@@ -114,6 +115,7 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
     (async () => {
       setLoadingNeeds(true);
       setErr(null);
+
       try {
         const coachId = Number(user.id);
         if (!coachId) {
@@ -152,6 +154,7 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
     (async () => {
       setLoadingTeam(true);
       setTeamError(null);
+
       try {
         const res = await fetch("/api/coach/team-profile", {
           cache: "no-store",
@@ -375,6 +378,15 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
               </table>
             </div>
           )}
+        </section>
+
+        {/* Account Settings */}
+        <section className="mt-10">
+          <h2 className="mb-3 text-lg font-semibold">Account Settings</h2>
+
+          <div className="max-w-md">
+            <DeleteAccountButton />
+          </div>
         </section>
       </div>
     </main>

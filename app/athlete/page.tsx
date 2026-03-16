@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { pool } from "@/lib/db";
 import AthleteProfileActivity from "@/components/athlete/AthleteProfileActivity";
+import DeleteAccountButton from "@/components/account/DeleteAccountButton";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -45,31 +46,31 @@ export default async function AthletePage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <section className="py-10 px-6 max-w-5xl mx-auto">
+      <section className="mx-auto max-w-5xl px-6 py-10">
         <header className="mb-8">
           <h1 className="text-3xl font-bold">Athlete Dashboard</h1>
-          <p className="text-slate-300 mt-2">Welcome, {name}.</p>
+          <p className="mt-2 text-slate-300">Welcome, {name}.</p>
         </header>
 
         <div className="grid gap-6 md:grid-cols-2">
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-            <h2 className="text-xl font-semibold mb-2">Your Availability</h2>
+            <h2 className="mb-2 text-xl font-semibold">Your Availability</h2>
 
-            <p className="text-slate-300 mb-4">
+            <p className="mb-4 text-slate-300">
               Manage your event availability and respond to match requests.
             </p>
 
             <div className="flex gap-3">
               <Link
                 href="/athlete/availability"
-                className="px-5 py-2 rounded-lg bg-red-600 hover:bg-red-700 transition font-semibold"
+                className="rounded-lg bg-red-600 px-5 py-2 font-semibold transition hover:bg-red-700"
               >
                 Update Availability
               </Link>
 
               <Link
                 href="/athlete/matches"
-                className="px-5 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 transition font-semibold"
+                className="rounded-lg border border-slate-700 px-5 py-2 font-semibold transition hover:bg-slate-800"
               >
                 View Matches
               </Link>
@@ -77,15 +78,15 @@ export default async function AthletePage() {
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-            <h2 className="text-xl font-semibold mb-2">Messages</h2>
+            <h2 className="mb-2 text-xl font-semibold">Messages</h2>
 
-            <p className="text-slate-300 mb-4">
+            <p className="mb-4 text-slate-300">
               Chat with coaches once a match is confirmed.
             </p>
 
             <Link
               href="/athlete/messages"
-              className="text-red-400 hover:text-red-300 underline"
+              className="text-red-400 underline hover:text-red-300"
             >
               Go to Messages
             </Link>
@@ -98,6 +99,15 @@ export default async function AthletePage() {
             <AthleteProfileActivity athleteId={athleteId} />
           </div>
         )}
+
+        {/* Account Settings */}
+        <section className="mt-10">
+          <h2 className="mb-3 text-lg font-semibold">Account Settings</h2>
+
+          <div className="max-w-md">
+            <DeleteAccountButton />
+          </div>
+        </section>
       </section>
     </main>
   );
