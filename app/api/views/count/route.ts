@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       .toLowerCase();
     const targetId = Number(searchParams.get("targetId"));
 
-    if (!["athlete", "coach_need"].includes(targetType)) {
+    if (!["athlete", "coach", "coach_need"].includes(targetType)) {
       return badRequest("Invalid targetType", { targetType });
     }
 
@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
       {
         ok: false,
         message: err?.message ?? "Failed to fetch view counts",
-        pg: { code: err?.code },
+        pg: { code: err?.code ?? null },
       },
       { status: 500 }
     );

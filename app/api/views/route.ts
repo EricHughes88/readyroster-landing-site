@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
     const targetType = String(body?.targetType ?? "").trim().toLowerCase();
     const targetId = Number(body?.targetId);
 
-    if (!["athlete", "coach_need"].includes(targetType)) {
+    if (!["athlete", "coach", "coach_need"].includes(targetType)) {
       return badRequest("Invalid targetType", { targetType });
     }
 

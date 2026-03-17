@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
       Math.max(1, Number(searchParams.get("limit") ?? 10))
     );
 
-    if (!["athlete", "coach_need"].includes(targetType)) {
+    if (!["athlete", "coach", "coach_need"].includes(targetType)) {
       return badRequest("Invalid targetType", { targetType });
     }
 
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
       {
         ok: false,
         message: err?.message ?? "Failed to fetch recent viewers",
-        pg: { code: err?.code },
+        pg: { code: err?.code ?? null },
       },
       { status: 500 }
     );

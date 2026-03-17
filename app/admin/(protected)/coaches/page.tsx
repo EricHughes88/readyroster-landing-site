@@ -1,6 +1,7 @@
 // app/admin/(protected)/coaches/page.tsx
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -46,6 +47,13 @@ function displayName(r: CoachRow) {
   return n || r.coach_name || `Coach #${r.id}`;
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString();
+}
+
 export default function AdminCoachesPage() {
   const [rows, setRows] = useState<CoachRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,10 +67,13 @@ export default function AdminCoachesPage() {
       setLoading(true);
       setErr(null);
 
-      const qs =
-        stateFilter && stateFilter !== "All"
-          ? `?state=${encodeURIComponent(stateFilter)}`
-          : "";
+      const params = new URLSearchParams();
+
+      if (stateFilter && stateFilter !== "All") {
+        params.set("state", stateFilter);
+      }
+
+      const qs = params.toString() ? `?${params.toString()}` : "";
 
       const res = await fetch(`/api/admin/coaches${qs}`, { cache: "no-store" });
       const data: CoachesApiResponse = await res.json();
@@ -99,6 +110,7 @@ export default function AdminCoachesPage() {
         r.email,
         r.phone,
         r.teamname,
+        r.coach_name,
         r.city,
         r.state,
       ]
@@ -110,15 +122,16 @@ export default function AdminCoachesPage() {
   }, [rows, q]);
 
   function downloadCoachesCsv() {
-    const qs =
-      stateFilter && stateFilter !== "All"
-        ? `?state=${encodeURIComponent(stateFilter)}`
-        : "";
-    // ✅ Server endpoint returns file + logs export_coaches_csv
+    const params = new URLSearchParams();
+
+    if (stateFilter && stateFilter !== "All") {
+      params.set("state", stateFilter);
+    }
+
+    const qs = params.toString() ? `?${params.toString()}` : "";
     window.location.href = `/api/admin/coaches/export${qs}`;
   }
 
-  // Full-width layout (bigger than rr-container)
   return (
     <main
       style={{
@@ -128,7 +141,6 @@ export default function AdminCoachesPage() {
         color: "#e5e7eb",
       }}
     >
-      {/* Top bar */}
       <div
         style={{
           display: "flex",
@@ -140,14 +152,15 @@ export default function AdminCoachesPage() {
         }}
       >
         <Link
-          href="/admin"
+          href={"/admin" as Route}
           className="text-sm text-slate-400 hover:text-white underline"
         >
           ← Back to Admin
         </Link>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {/* State filter */}
+        <div
+          style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}
+        >
           <select
             value={stateFilter}
             onChange={(e) => setStateFilter(e.target.value)}
@@ -156,12 +169,11 @@ export default function AdminCoachesPage() {
           >
             {states.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {s === "All" ? "All states" : s}
               </option>
             ))}
           </select>
 
-          {/* Search */}
           <input
             className="rr-input"
             placeholder="Search name, email, team, city…"
@@ -170,7 +182,6 @@ export default function AdminCoachesPage() {
             style={{ width: 320, maxWidth: "60vw" }}
           />
 
-          {/* Export */}
           <button
             type="button"
             className="rr-btn rr-btn-primary"
@@ -182,9 +193,15 @@ export default function AdminCoachesPage() {
         </div>
       </div>
 
-      {/* Card */}
       <div className="rr-card">
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
           <div>
             <h1 className="text-2xl font-semibold mb-2">Coaches DB</h1>
             <p className="text-slate-300">
@@ -199,7 +216,6 @@ export default function AdminCoachesPage() {
 
         {err ? <div className="rr-alert rr-alert-error mt-4">{err}</div> : null}
 
-        {/* Table */}
         <div className="mt-4 overflow-auto border border-slate-800 rounded-lg">
           <table className="min-w-[1200px] w-full text-sm">
             <thead className="bg-slate-950/40 text-slate-300">
@@ -216,15 +232,21 @@ export default function AdminCoachesPage() {
             <tbody>
               {filtered.map((r) => (
                 <tr key={r.id} className="border-t border-slate-800">
-                  <td className="p-3 text-white font-semibold">{displayName(r)}</td>
+                  <td className="p-3 text-white font-semibold">
+                    <Link
+                      href={`/admin/coaches/${r.id}` as Route}
+                      className="hover:underline"
+                      style={{ color: "#fff", textUnderlineOffset: 2 }}
+                    >
+                      {displayName(r)}
+                    </Link>
+                  </td>
                   <td className="p-3 text-slate-200">{safeStr(r.email)}</td>
                   <td className="p-3 text-slate-200">{safeStr(r.phone)}</td>
                   <td className="p-3 text-slate-200">{safeStr(r.teamname)}</td>
                   <td className="p-3 text-slate-200">{safeStr(r.city)}</td>
                   <td className="p-3 text-slate-200">{safeStr(r.state)}</td>
-                  <td className="p-3 text-slate-400">
-                    {r.created_at ? new Date(r.created_at).toLocaleString() : ""}
-                  </td>
+                  <td className="p-3 text-slate-400">{formatDateTime(r.created_at)}</td>
                 </tr>
               ))}
 
