@@ -4,35 +4,49 @@
 import Link from "next/link";
 import { useSearchParams, useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import TeamLogo from "@/components/team/TeamLogo";
 
 type MatchStatus = "pending" | "confirmed" | "all";
 
 type MatchRow = {
-  id: string | number;
-  event_name: string | null;
-  event_date: string | null;
+  id: number;
+  eventName: string | null;
+  eventDate: string | null;
   status: "pending" | "confirmed";
   notes: string | null;
 
-  team_name: string | null;
-  team_coach_name: string | null;
-  team_logo_path: string | null;
+  teamName: string | null;
+  teamCoachName: string | null;
+  teamLogoPath: string | null;
 
-  weight_class: string | null;
-  age_group: string | null;
+  weightClass: string | null;
+  ageGroup: string | null;
 
-  parent_ok: boolean | null;
-  coach_ok: boolean | null;
+  parentOk: boolean | null;
+  coachOk: boolean | null;
 };
 
 type ApiResponse = {
   ok: boolean;
-  matches: MatchRow[];
-  page: { page: number; limit: number; total: number };
+  matches: any[];
+  page?: { page: number; limit: number; total: number };
   message?: string;
 };
 
 type SortKey = "team" | "coach" | "event" | "weight" | "age" | "status";
+
+function formatEventDate(value?: string | null) {
+  if (!value) return null;
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
 
 export default function ParentWrestlerMatchesPage() {
   const params = useParams<{ id: string }>();
@@ -48,11 +62,9 @@ export default function ParentWrestlerMatchesPage() {
   const [err, setErr] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
 
-  // sorting
   const [sortKey, setSortKey] = useState<SortKey>("event");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
-  // ---- Load matches for this wrestler & status ----
   useEffect(() => {
     if (!wrestlerId) {
       setRows([]);
@@ -63,6 +75,7 @@ export default function ParentWrestlerMatchesPage() {
     (async () => {
       setLoading(true);
       setErr(null);
+
       try {
         const qs = new URLSearchParams();
         qs.set("wrestlerId", String(wrestlerId));
@@ -71,16 +84,30 @@ export default function ParentWrestlerMatchesPage() {
         const res = await fetch(`/api/matches?${qs.toString()}`, {
           cache: "no-store",
         });
+
         const json = (await res.json()) as ApiResponse;
-        console.log("Parent wrestler matches JSON:", json);
 
         if (!res.ok || !json.ok) {
           throw new Error(json?.message || "Failed to load matches");
         }
 
-        setRows(Array.isArray(json.matches) ? json.matches : []);
+        const normalized: MatchRow[] = (json.matches ?? []).map((m: any) => ({
+          id: Number(m.id),
+          eventName: m.event_name ?? null,
+          eventDate: m.event_date ?? null,
+          status: m.status === "confirmed" ? "confirmed" : "pending",
+          notes: m.notes ?? null,
+          teamName: m.team_name ?? null,
+          teamCoachName: m.team_coach_name ?? null,
+          teamLogoPath: m.team_logo_path ?? null,
+          weightClass: m.weight_class ?? null,
+          ageGroup: m.age_group ?? null,
+          parentOk: m.parent_ok ?? null,
+          coachOk: m.coach_ok ?? null,
+        }));
+
+        setRows(normalized);
       } catch (e: any) {
-        console.error("Error loading matches for wrestler", e);
         setErr(e?.message || "Failed to load matches");
         setRows([]);
       } finally {
@@ -95,10 +122,10 @@ export default function ParentWrestlerMatchesPage() {
     router.replace(`?${next.toString()}`);
   }
 
-  // ---- Parent confirms a match ----
   async function handleConfirm(matchId: number) {
     setErr(null);
     setConfirmingId(matchId);
+
     try {
       const res = await fetch(`/api/matches/${matchId}/confirm`, {
         method: "POST",
@@ -107,33 +134,33 @@ export default function ParentWrestlerMatchesPage() {
       });
 
       const json = await res.json().catch(() => ({}));
+
       if (!res.ok || !json.ok) {
         throw new Error(json?.message || "Failed to confirm match");
       }
 
-      // Optimistically update local state
       setRows((prev) =>
         prev.map((m) => {
-          if (Number(m.id) !== matchId) return m;
-          const parentOk = true;
-          const coachOk = m.coach_ok ?? false;
-          const confirmed = parentOk && coachOk;
+          if (m.id !== matchId) return m;
+
+          const nextParentOk = true;
+          const nextCoachOk = m.coachOk ?? false;
+          const confirmed = nextParentOk && nextCoachOk;
+
           return {
             ...m,
-            parent_ok: true,
+            parentOk: true,
             status: confirmed ? "confirmed" : m.status,
           };
         })
       );
     } catch (e: any) {
-      console.error("Error confirming match", e);
       setErr(e?.message || "Failed to confirm match");
     } finally {
       setConfirmingId(null);
     }
   }
 
-  // --------- Sorting helpers ----------
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -143,28 +170,34 @@ export default function ParentWrestlerMatchesPage() {
     }
   }
 
+  function sortArrow(key: SortKey) {
+    if (sortKey !== key) return "";
+    return sortDir === "asc" ? "▲" : "▼";
+  }
+
   const sortedRows = useMemo(() => {
     const copy = [...rows];
+
     copy.sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
 
       const getVal = (m: MatchRow) => {
         switch (sortKey) {
           case "team":
-            return (m.team_name ?? "").toLowerCase();
+            return (m.teamName ?? "").toLowerCase();
           case "coach":
-            return (m.team_coach_name ?? "").toLowerCase();
+            return (m.teamCoachName ?? "").toLowerCase();
           case "event":
-            return (m.event_name ?? "").toLowerCase();
+            return (m.eventName ?? "").toLowerCase();
           case "weight":
-            return Number(m.weight_class ?? 0);
+            return Number(m.weightClass ?? 0);
           case "age":
-            return (m.age_group ?? "").toLowerCase();
+            return (m.ageGroup ?? "").toLowerCase();
           case "status": {
             const base = m.status === "confirmed" ? 2 : 1;
             if (m.status === "pending") {
-              if (m.coach_ok && !m.parent_ok) return base + 0.1;
-              if (m.parent_ok && !m.coach_ok) return base + 0.2;
+              if (m.coachOk && !m.parentOk) return base + 0.1;
+              if (m.parentOk && !m.coachOk) return base + 0.2;
             }
             return base;
           }
@@ -178,6 +211,7 @@ export default function ParentWrestlerMatchesPage() {
       if (va > vb) return 1 * dir;
       return 0;
     });
+
     return copy;
   }, [rows, sortKey, sortDir]);
 
@@ -189,41 +223,41 @@ export default function ParentWrestlerMatchesPage() {
           "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40",
       };
     }
-    if (m.coach_ok && !m.parent_ok) {
+
+    if (m.coachOk && !m.parentOk) {
       return {
         label: "Waiting on Parent",
-        classes: "bg-amber-500/15 text-amber-300 border border-amber-500/40",
+        classes:
+          "bg-amber-500/15 text-amber-300 border border-amber-500/40",
       };
     }
-    if (m.parent_ok && !m.coach_ok) {
+
+    if (m.parentOk && !m.coachOk) {
       return {
         label: "Waiting on Coach",
-        classes: "bg-amber-500/15 text-amber-300 border border-amber-500/40",
+        classes:
+          "bg-amber-500/15 text-amber-300 border border-amber-500/40",
       };
     }
+
     return {
       label: "Pending",
       classes: "bg-slate-700/60 text-slate-200 border border-slate-500/60",
     };
   }
 
-  function sortArrow(key: SortKey) {
-    if (sortKey !== key) return "";
-    return sortDir === "asc" ? "▲" : "▼";
-  }
-
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Matches (PARENT PAGE)</h1>
+    <main className="min-h-screen bg-slate-950 p-8 text-white">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <h1 className="text-2xl font-bold">Matches</h1>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => changeStatus("pending")}
-            className={`px-4 py-2 rounded ${
+            className={`rounded border px-4 py-2 ${
               status === "pending"
-                ? "bg-slate-700 border border-slate-400"
-                : "bg-slate-800 border border-slate-600"
+                ? "border-slate-400 bg-slate-700"
+                : "border-slate-600 bg-slate-800"
             }`}
           >
             Pending
@@ -231,10 +265,10 @@ export default function ParentWrestlerMatchesPage() {
 
           <button
             onClick={() => changeStatus("confirmed")}
-            className={`px-4 py-2 rounded ${
+            className={`rounded border px-4 py-2 ${
               status === "confirmed"
-                ? "bg-slate-700 border border-slate-400"
-                : "bg-slate-800 border border-slate-600"
+                ? "border-slate-400 bg-slate-700"
+                : "border-slate-600 bg-slate-800"
             }`}
           >
             Confirmed
@@ -242,10 +276,10 @@ export default function ParentWrestlerMatchesPage() {
 
           <button
             onClick={() => changeStatus("all")}
-            className={`px-4 py-2 rounded ${
+            className={`rounded border px-4 py-2 ${
               status === "all"
-                ? "bg-slate-700 border border-slate-400"
-                : "bg-slate-800 border border-slate-600"
+                ? "border-slate-400 bg-slate-700"
+                : "border-slate-600 bg-slate-800"
             }`}
           >
             All
@@ -253,7 +287,7 @@ export default function ParentWrestlerMatchesPage() {
 
           <Link
             href={`/parent/wrestlers/${wrestlerId}` as any}
-            className="px-4 py-2 bg-slate-700 rounded border border-slate-500"
+            className="rounded border border-slate-500 bg-slate-700 px-4 py-2"
           >
             Back to dashboard
           </Link>
@@ -266,17 +300,17 @@ export default function ParentWrestlerMatchesPage() {
         </div>
       )}
 
-      <div className="mb-4 text-xs text-slate-400 flex flex-wrap gap-4">
+      <div className="mb-4 flex flex-wrap gap-4 text-xs text-slate-400">
         <span>
-          <span className="inline-block w-3 h-3 rounded-full bg-slate-500 mr-1" />
+          <span className="mr-1 inline-block h-3 w-3 rounded-full bg-slate-500" />
           Pending
         </span>
         <span>
-          <span className="inline-block w-3 h-3 rounded-full bg-amber-400 mr-1" />
+          <span className="mr-1 inline-block h-3 w-3 rounded-full bg-amber-400" />
           Waiting on Parent / Coach
         </span>
         <span>
-          <span className="inline-block w-3 h-3 rounded-full bg-emerald-500 mr-1" />
+          <span className="mr-1 inline-block h-3 w-3 rounded-full bg-emerald-500" />
           Confirmed
         </span>
       </div>
@@ -284,43 +318,44 @@ export default function ParentWrestlerMatchesPage() {
       {loading ? (
         <p className="text-slate-400">Loading…</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border border-slate-800 rounded overflow-hidden">
+        <div className="overflow-x-auto rounded border border-slate-800">
+          <table className="w-full text-sm">
             <thead className="bg-slate-900 text-slate-300">
               <tr>
                 <th className="px-3 py-2 text-left">Logo</th>
                 <th
-                  className="px-3 py-2 text-left cursor-pointer select-none"
+                  className="cursor-pointer select-none px-3 py-2 text-left"
                   onClick={() => toggleSort("team")}
                 >
                   Team {sortArrow("team")}
                 </th>
                 <th
-                  className="px-3 py-2 text-left cursor-pointer select-none"
+                  className="cursor-pointer select-none px-3 py-2 text-left"
                   onClick={() => toggleSort("coach")}
                 >
                   Coach {sortArrow("coach")}
                 </th>
                 <th
-                  className="px-3 py-2 text-left cursor-pointer select-none"
+                  className="cursor-pointer select-none px-3 py-2 text-left"
                   onClick={() => toggleSort("event")}
                 >
                   Event {sortArrow("event")}
                 </th>
+                <th className="px-3 py-2 text-left">Event Date</th>
                 <th
-                  className="px-3 py-2 text-left cursor-pointer select-none"
+                  className="cursor-pointer select-none px-3 py-2 text-left"
                   onClick={() => toggleSort("weight")}
                 >
                   Weight {sortArrow("weight")}
                 </th>
                 <th
-                  className="px-3 py-2 text-left cursor-pointer select-none"
+                  className="cursor-pointer select-none px-3 py-2 text-left"
                   onClick={() => toggleSort("age")}
                 >
                   Age Group {sortArrow("age")}
                 </th>
                 <th
-                  className="px-3 py-2 text-left cursor-pointer select-none"
+                  className="cursor-pointer select-none px-3 py-2 text-left"
                   onClick={() => toggleSort("status")}
                 >
                   Status {sortArrow("status")}
@@ -330,41 +365,29 @@ export default function ParentWrestlerMatchesPage() {
             </thead>
 
             <tbody>
-              {(sortedRows ?? []).map((m) => {
-                const idNum = Number(m.id);
-
+              {sortedRows.map((m) => {
                 const canConfirm =
-                  m.status === "pending" && !!m.coach_ok && !m.parent_ok;
+                  m.status === "pending" && !!m.coachOk && !m.parentOk;
 
                 const statusInfo = getStatusInfo(m);
+                const formattedDate = formatEventDate(m.eventDate);
 
                 return (
                   <tr key={m.id} className="border-t border-slate-800">
                     <td className="px-3 py-2">
-                      {m.team_logo_path ? (
-                        <img
-                          src={m.team_logo_path}
-                          alt={m.team_name ?? "Team logo"}
-                          className="w-8 h-8 rounded-full object-cover border border-slate-600"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs text-slate-300 border border-slate-600">
-                          {m.team_name
-                            ? m.team_name
-                                .split(" ")
-                                .map((w) => w[0])
-                                .join("")
-                                .slice(0, 2)
-                            : "RR"}
-                        </div>
-                      )}
+                      <TeamLogo
+                        logoPath={m.teamLogoPath}
+                        teamName={m.teamName}
+                        size={36}
+                      />
                     </td>
 
-                    <td className="px-3 py-2">{m.team_name ?? "—"}</td>
-                    <td className="px-3 py-2">{m.team_coach_name ?? "—"}</td>
-                    <td className="px-3 py-2">{m.event_name ?? "—"}</td>
-                    <td className="px-3 py-2">{m.weight_class ?? "—"}</td>
-                    <td className="px-3 py-2">{m.age_group ?? "—"}</td>
+                    <td className="px-3 py-2">{m.teamName ?? "—"}</td>
+                    <td className="px-3 py-2">{m.teamCoachName ?? "—"}</td>
+                    <td className="px-3 py-2">{m.eventName ?? "—"}</td>
+                    <td className="px-3 py-2">{formattedDate ?? "—"}</td>
+                    <td className="px-3 py-2">{m.weightClass ?? "—"}</td>
+                    <td className="px-3 py-2">{m.ageGroup ?? "—"}</td>
 
                     <td className="px-3 py-2">
                       <span
@@ -375,28 +398,27 @@ export default function ParentWrestlerMatchesPage() {
                     </td>
 
                     <td className="px-3 py-2">
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         {canConfirm && (
                           <button
-                            onClick={() => handleConfirm(idNum)}
-                            disabled={confirmingId === idNum}
-                            className="px-3 py-1 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold disabled:opacity-60"
+                            onClick={() => handleConfirm(m.id)}
+                            disabled={confirmingId === m.id}
+                            className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
                           >
-                            {confirmingId === idNum ? "Confirming…" : "Confirm"}
+                            {confirmingId === m.id ? "Confirming…" : "Confirm"}
                           </button>
                         )}
 
                         <Link
                           href={`/messages/${m.id}` as any}
-                          className="px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:bg-slate-600 text-xs"
+                          className="rounded bg-slate-700 px-2 py-1 text-xs hover:bg-slate-600"
                         >
                           Message
                         </Link>
 
-                        {/* ✅ View button now points to /matches/[id] */}
                         <Link
                           href={`/matches/${m.id}` as any}
-                          className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs"
+                          className="rounded bg-emerald-600 px-2 py-1 text-xs text-slate-950 hover:bg-emerald-500"
                         >
                           View
                         </Link>
@@ -406,12 +428,9 @@ export default function ParentWrestlerMatchesPage() {
                 );
               })}
 
-              {sortedRows.length === 0 && !loading && (
+              {sortedRows.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={8}
-                    className="px-3 py-6 text-center text-slate-400"
-                  >
+                  <td colSpan={9} className="py-6 text-center text-slate-400">
                     No matches found.
                   </td>
                 </tr>

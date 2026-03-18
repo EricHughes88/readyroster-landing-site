@@ -24,7 +24,9 @@ type TeamRow = {
 
 function mapRow(row: TeamRow | null) {
   if (!row) return null;
+
   return {
+    teamId: row.teamid,
     teamName: row.teamname ?? "",
     coachName: row.coach_name ?? "",
     contactEmail: row.contactemail ?? "",
@@ -38,6 +40,7 @@ function mapRow(row: TeamRow | null) {
 export async function GET() {
   try {
     const session = await auth();
+
     if (!session?.user?.id) {
       return jsonError("Not authenticated", 401);
     }
@@ -49,7 +52,12 @@ export async function GET() {
 
     const { rows } = await pool.query<TeamRow>(
       `
-      SELECT teamid, teamname, coach_name, contactemail, logopath
+      SELECT
+        teamid,
+        teamname,
+        coach_name,
+        contactemail,
+        logopath
       FROM teams
       WHERE userid = $1
       LIMIT 1
@@ -57,12 +65,12 @@ export async function GET() {
       [coachUserId]
     );
 
-    const team = rows.length ? mapRow(rows[0]) : null;
+    const profile = rows.length ? mapRow(rows[0]) : null;
 
     return NextResponse.json(
       {
         ok: true,
-        team,
+        profile,
       },
       { status: 200 }
     );
@@ -87,6 +95,7 @@ type SaveBody = {
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
+
     if (!session?.user?.id) {
       return jsonError("Not authenticated", 401);
     }
@@ -103,11 +112,11 @@ export async function POST(req: NextRequest) {
       return jsonError("Invalid JSON body", 400);
     }
 
-    const teamName = (body.teamName ?? "").trim();
-    const coachName = (body.coachName ?? "").trim();
-    const contactEmail = (body.contactEmail ?? "").trim();
+    const teamName = String(body.teamName ?? "").trim();
+    const coachName = String(body.coachName ?? "").trim();
+    const contactEmail = String(body.contactEmail ?? "").trim();
     const logoPath =
-      body.logoPath === undefined ? null : (body.logoPath ?? "").trim() || null;
+      body.logoPath === undefined ? null : String(body.logoPath ?? "").trim() || null;
 
     if (!teamName) {
       return jsonError("Team name is required", 400);
@@ -120,24 +129,31 @@ export async function POST(req: NextRequest) {
     }
 
     const client = await pool.connect();
+
     try {
       await client.query("BEGIN");
 
-      // Upsert into teams table keyed by userid
       const upsertSql = `
         WITH updated AS (
           UPDATE teams
-          SET teamname = $2,
-              coach_name = $3,
-              contactemail = $4,
-              logopath = $5
+          SET
+            teamname = $2,
+            coach_name = $3,
+            contactemail = $4,
+            logopath = $5
           WHERE userid = $1
           RETURNING teamid, teamname, coach_name, contactemail, logopath
+        ),
+        inserted AS (
+          INSERT INTO teams (userid, teamname, coach_name, contactemail, logopath)
+          SELECT $1, $2, $3, $4, $5
+          WHERE NOT EXISTS (SELECT 1 FROM updated)
+          RETURNING teamid, teamname, coach_name, contactemail, logopath
         )
-        INSERT INTO teams (userid, teamname, coach_name, contactemail, logopath)
-        SELECT $1, $2, $3, $4, $5
-        WHERE NOT EXISTS (SELECT 1 FROM updated)
-        RETURNING teamid, teamname, coach_name, contactemail, logopath
+        SELECT teamid, teamname, coach_name, contactemail, logopath FROM updated
+        UNION ALL
+        SELECT teamid, teamname, coach_name, contactemail, logopath FROM inserted
+        LIMIT 1
       `;
 
       const { rows } = await client.query<TeamRow>(upsertSql, [
@@ -151,12 +167,12 @@ export async function POST(req: NextRequest) {
       await client.query("COMMIT");
 
       const savedRow = rows[0] ?? null;
-      const team = mapRow(savedRow);
+      const profile = mapRow(savedRow);
 
       return NextResponse.json(
         {
           ok: true,
-          team,
+          profile,
         },
         { status: 200 }
       );

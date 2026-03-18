@@ -2,7 +2,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
+import TeamLogo from "@/components/team/TeamLogo";
+import TeamLogoUploader from "@/components/team/TeamLogoUploader";
 
 type UserLike = {
   id: number | string;
@@ -22,6 +25,8 @@ type ApiProfileResponse =
   | {
       ok?: boolean;
       profile?: {
+        teamId?: number | null;
+        teamid?: number | null;
         teamName?: string | null;
         team_name?: string | null;
         coachName?: string | null;
@@ -34,6 +39,8 @@ type ApiProfileResponse =
       message?: string;
     }
   | {
+      teamId?: number | null;
+      teamid?: number | null;
       teamName?: string | null;
       team_name?: string | null;
       coachName?: string | null;
@@ -55,6 +62,8 @@ type FormState = {
 export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
   const router = useRouter();
 
+  const [teamId, setTeamId] = useState<number | null>(null);
+
   const [form, setForm] = useState<FormState>({
     teamName: "",
     coachName: user.name ?? "",
@@ -67,9 +76,9 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // If somehow user is not a coach, bounce them
   useEffect(() => {
-    const role = (user.role || "").toLowerCase();
+    const role = String(user.role || "").toLowerCase();
+
     if (role && role !== "coach") {
       if (role === "parent") router.replace("/parent" as any);
       else if (role === "athlete") router.replace("/athlete" as any);
@@ -78,7 +87,6 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
     }
   }, [router, user.role]);
 
-  // Load existing team profile for this coach
   useEffect(() => {
     if (!user?.id) {
       setLoading(false);
@@ -100,32 +108,19 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
 
         const data = (await res.json()) as ApiProfileResponse;
 
-        // If API is shape { ok, profile }
         const pRaw =
           "profile" in data && data.profile ? data.profile : (data as any);
 
-        const teamName =
-          pRaw?.teamName ??
-          pRaw?.team_name ??
-          ""; // default empty string
+        const nextTeamId = Number(pRaw?.teamId ?? pRaw?.teamid ?? 0) || null;
 
+        const teamName = pRaw?.teamName ?? pRaw?.team_name ?? "";
         const coachName =
-          pRaw?.coachName ??
-          pRaw?.coach_name ??
-          user.name ??
-          "";
-
+          pRaw?.coachName ?? pRaw?.coach_name ?? user.name ?? "";
         const contactEmail =
-          pRaw?.contactEmail ??
-          pRaw?.contact_email ??
-          user.email ??
-          "";
+          pRaw?.contactEmail ?? pRaw?.contact_email ?? user.email ?? "";
+        const logoPath = pRaw?.logoPath ?? pRaw?.logopath ?? "";
 
-        const logoPath =
-          pRaw?.logoPath ??
-          pRaw?.logopath ??
-          "";
-
+        setTeamId(nextTeamId);
         setForm({
           teamName,
           coachName,
@@ -143,7 +138,7 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
 
   const handleChange =
     (field: keyof FormState) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (e: ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value;
       setForm((prev) => ({
         ...prev,
@@ -160,7 +155,7 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
       teamName: form.teamName ?? "",
       coachName: form.coachName ?? (user.name ?? ""),
       contactEmail: form.contactEmail ?? (user.email ?? ""),
-      logoPath: form.logoPath ?? null,
+      logoPath: form.logoPath?.trim() ? form.logoPath.trim() : null,
     };
 
     try {
@@ -205,9 +200,7 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
       <div className="mx-auto max-w-3xl px-4 py-8">
         <div className="mb-6 flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold mb-1">
-              Team Profile
-            </h1>
+            <h1 className="mb-1 text-2xl font-semibold">Team Profile</h1>
             <p className="text-sm text-slate-300">
               This is what parents will see when they view your team.
             </p>
@@ -215,7 +208,7 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
 
           <button
             onClick={handleBack}
-            className="px-3 py-1.5 text-xs rounded bg-slate-800 border border-slate-700 hover:bg-slate-700"
+            className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs hover:bg-slate-700"
           >
             Back to dashboard
           </button>
@@ -238,10 +231,9 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
             Loading your team profile…
           </div>
         ) : (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-6 space-y-4">
-            {/* Team Name */}
+          <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-6">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="mb-1 block text-xs font-medium text-slate-300">
                 Team Name
               </label>
               <input
@@ -256,9 +248,8 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
               </p>
             </div>
 
-            {/* Coach Name */}
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="mb-1 block text-xs font-medium text-slate-300">
                 Coach Name
               </label>
               <input
@@ -273,9 +264,8 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
               </p>
             </div>
 
-            {/* Contact Email */}
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="mb-1 block text-xs font-medium text-slate-300">
                 Contact Email
               </label>
               <input
@@ -290,9 +280,8 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
               </p>
             </div>
 
-            {/* Logo Path / URL */}
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
+              <label className="mb-1 block text-xs font-medium text-slate-300">
                 Team Logo URL / Path
               </label>
               <input
@@ -303,22 +292,25 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
                 className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-slate-400"
               />
               <p className="mt-1 text-xs text-slate-400">
-                For now, paste a URL or relative path. Later we can hook this
-                up to an image uploader.
+                You can paste a logo URL here or upload one below.
               </p>
             </div>
 
-            {/* Preview (optional simple preview box) */}
             <div className="mt-4 border-t border-slate-800 pt-4">
-              <h2 className="text-sm font-semibold mb-2 text-slate-200">
+              <h2 className="mb-3 text-sm font-semibold text-slate-200">
                 Preview
               </h2>
-              <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 flex items-center gap-4">
-                <div className="h-12 w-12 rounded bg-slate-800 flex items-center justify-center text-xs text-slate-300">
-                  {form.logoPath ? "Logo" : "No Logo"}
-                </div>
-                <div className="flex-1">
-                  <div className="font-semibold">
+
+              <div className="flex items-center gap-4 rounded-xl border border-slate-800 bg-slate-950 px-4 py-4">
+                <TeamLogo
+                  logoPath={form.logoPath || null}
+                  teamName={form.teamName || "Team"}
+                  size={56}
+                  rounded={false}
+                />
+
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-white">
                     {form.teamName || "Your team name here"}
                   </div>
                   <div className="text-xs text-slate-300">
@@ -331,12 +323,32 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
               </div>
             </div>
 
-            {/* Actions */}
+            {teamId ? (
+              <TeamLogoUploader
+                teamId={teamId}
+                teamName={form.teamName || "Team"}
+                currentLogoPath={form.logoPath || null}
+                onUploaded={(logoUrl) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    logoPath: logoUrl,
+                  }));
+                  setMsg("Logo uploaded successfully. Don’t forget to save.");
+                  setErr(null);
+                }}
+              />
+            ) : (
+              <div className="rounded-xl border border-amber-700 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">
+                Team logo upload will be available once this coach account has a
+                team record.
+              </div>
+            )}
+
             <div className="mt-6 flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={handleBack}
-                className="px-4 py-2 rounded border border-slate-700 bg-slate-900 text-sm hover:bg-slate-800"
+                className="rounded border border-slate-700 bg-slate-900 px-4 py-2 text-sm hover:bg-slate-800"
               >
                 Cancel
               </button>
@@ -344,7 +356,7 @@ export default function CoachTeamProfileClient({ user }: { user: UserLike }) {
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="px-4 py-2 rounded bg-red-600 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-60"
+                className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-60"
               >
                 {saving ? "Saving…" : "Save Profile"}
               </button>

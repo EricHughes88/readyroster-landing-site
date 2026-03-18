@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSessionUser } from "@/lib/session";
 import DeleteAccountButton from "@/components/account/DeleteAccountButton";
+import TeamLogo from "@/components/team/TeamLogo";
 
 type RRRole = "Coach" | "Parent" | "Athlete" | "Admin";
 
@@ -265,7 +266,7 @@ export default function ParentDashboardPage() {
                   className="rounded-2xl border border-slate-700 bg-slate-950/50 p-5 shadow-sm"
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="text-xs font-semibold uppercase tracking-wide text-cyan-300">
                         Recently Viewed
                       </div>
@@ -285,13 +286,12 @@ export default function ParentDashboardPage() {
                       ) : null}
                     </div>
 
-                    {viewer.logopath ? (
-                      <img
-                        src={viewer.logopath}
-                        alt={safeText(viewer.teamname, "Team logo")}
-                        className="h-14 w-14 rounded-lg border border-slate-700 object-cover"
-                      />
-                    ) : null}
+                    <TeamLogo
+                      logoPath={viewer.logopath ?? null}
+                      teamName={viewer.teamname ?? "Team"}
+                      size={56}
+                      rounded={false}
+                    />
                   </div>
                 </div>
               );
@@ -374,7 +374,7 @@ export default function ParentDashboardPage() {
                   </div>
 
                   <div className="flex items-start justify-between gap-4">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <h4 className="text-lg font-bold text-white">
                         {safeText(match.teamname, "Unnamed Team")}
                       </h4>
@@ -383,13 +383,12 @@ export default function ParentDashboardPage() {
                       </p>
                     </div>
 
-                    {match.logopath ? (
-                      <img
-                        src={match.logopath}
-                        alt={safeText(match.teamname, "Team logo")}
-                        className="h-14 w-14 rounded-lg border border-slate-700 object-cover"
-                      />
-                    ) : null}
+                    <TeamLogo
+                      logoPath={match.logopath ?? null}
+                      teamName={match.teamname ?? "Team"}
+                      size={56}
+                      rounded={false}
+                    />
                   </div>
 
                   {match.coach_viewed ? (

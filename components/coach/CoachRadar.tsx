@@ -64,13 +64,20 @@ async function fetchWithRetry(url: string, attempts = 2) {
 function formatDate(value?: string | null) {
   if (!value) return "—";
   const d = new Date(value);
-  if (isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString();
 }
 
 function athleteName(row: RadarAthlete) {
   const full = `${row.firstname ?? ""} ${row.lastname ?? ""}`.trim();
   return full || "Unknown athlete";
+}
+
+function athleteInitials(row: RadarAthlete) {
+  const first = (row.firstname ?? "").trim().charAt(0);
+  const last = (row.lastname ?? "").trim().charAt(0);
+  const initials = `${first}${last}`.trim().toUpperCase();
+  return initials || "AA";
 }
 
 function locationText(city?: string | null, state?: string | null) {
@@ -142,12 +149,18 @@ export default function CoachRadar() {
               className="rounded-xl border border-slate-800 bg-slate-950/60 p-5"
             >
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-xl font-semibold text-white">
-                    {athleteName(row)}
-                  </h3>
-                  <div className="mt-1 text-sm text-slate-400">
-                    {locationText(row.city, row.state)}
+                <div className="flex items-start gap-3">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-sm font-semibold text-slate-200">
+                    {athleteInitials(row)}
+                  </div>
+
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">
+                      {athleteName(row)}
+                    </h3>
+                    <div className="mt-1 text-sm text-slate-400">
+                      {locationText(row.city, row.state)}
+                    </div>
                   </div>
                 </div>
 
@@ -183,6 +196,18 @@ export default function CoachRadar() {
                 </div>
               </div>
 
+              {(row.need_event_name || row.need_weight_class || row.need_age_group) && (
+                <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-3 text-sm">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Matching Need
+                  </div>
+                  <div className="text-slate-200">
+                    {row.need_event_name || "—"} • {row.need_age_group || "—"} •{" "}
+                    {row.need_weight_class || "—"}
+                  </div>
+                </div>
+              )}
+
               {typeof row.event_count === "number" && row.event_count > 1 ? (
                 <div className="mt-3 text-sm text-slate-400">
                   Available for {row.event_count} events
@@ -201,12 +226,14 @@ export default function CoachRadar() {
                   View Profile
                 </Link>
 
-                <Link
-                  href={`/coach/needs/${row.coach_need_id}/matches` as const}
-                  className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
-                >
-                  View Need Matches
-                </Link>
+                {row.coach_need_id ? (
+                  <Link
+                    href={`/coach/needs/${row.coach_need_id}/matches` as const}
+                    className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+                  >
+                    View Need Matches
+                  </Link>
+                ) : null}
 
                 <FollowAthleteButton athleteId={row.wrestler_id} />
               </div>

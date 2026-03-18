@@ -10,6 +10,7 @@ import CoachRadar from "@/components/coach/CoachRadar";
 import FollowedAthletesPanel from "@/components/coach/FollowedAthletesPanel";
 import RecruitingMap from "@/components/coach/RecruitingMap";
 import DeleteAccountButton from "@/components/account/DeleteAccountButton";
+import TeamLogo from "@/components/team/TeamLogo";
 
 type UserLike = {
   id: number | string;
@@ -197,33 +198,58 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-8">
-        {/* Header card */}
         <div className="mb-8 rounded-2xl border border-slate-800 bg-slate-900/60 px-6 py-5">
           <div className="flex items-start justify-between gap-4">
-            <div>
+            <div className="min-w-0 flex-1">
               <h1 className="mb-1 text-2xl font-semibold">Coach Dashboard</h1>
 
-              <p className="mb-1 text-sm text-slate-300">
+              <p className="mb-4 text-sm text-slate-300">
                 Welcome, {user?.name ?? "Coach"}
                 {user?.email ? (
                   <span className="text-slate-400"> ({user.email})</span>
                 ) : null}
               </p>
 
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                <span className="text-xs text-slate-400">Team:</span>
-                <span className="text-xs font-semibold text-white">
-                  {loadingTeam ? "Loading…" : team?.teamName || "No team set yet"}
-                </span>
-                <button
-                  onClick={handleEditTeamProfile}
-                  className="text-xs text-blue-300 underline hover:text-blue-200"
-                >
-                  Edit team profile
-                </button>
-                {teamError && (
-                  <span className="text-[10px] text-rose-300">({teamError})</span>
-                )}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-4">
+                <div className="flex items-center gap-4">
+                  <TeamLogo
+                    logoPath={team?.logoPath ?? null}
+                    teamName={team?.teamName || "Team"}
+                    size={56}
+                    rounded={false}
+                  />
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-slate-400">Team:</span>
+                      <span className="text-sm font-semibold text-white">
+                        {loadingTeam ? "Loading…" : team?.teamName || "No team set yet"}
+                      </span>
+                      <button
+                        onClick={handleEditTeamProfile}
+                        className="text-xs text-blue-300 underline hover:text-blue-200"
+                      >
+                        Edit team profile
+                      </button>
+                    </div>
+
+                    <div className="mt-1 text-xs text-slate-300">
+                      Coach: {loadingTeam ? "Loading…" : team?.coachName || user?.name || "—"}
+                    </div>
+
+                    <div className="mt-1 text-xs text-slate-400">
+                      {loadingTeam
+                        ? "Loading…"
+                        : team?.contactEmail || user?.email || "No contact email set"}
+                    </div>
+
+                    {teamError && (
+                      <div className="mt-2 text-[10px] text-rose-300">
+                        {teamError}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -236,7 +262,7 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
             </button>
           </div>
 
-          <div className="mt-1 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-wrap gap-3">
             <button
               onClick={handlePostNeed}
               className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500"
@@ -281,27 +307,22 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
           </div>
         </div>
 
-        {/* New Match Alerts */}
         <div className="mb-8">
           <CoachMatchAlerts />
         </div>
 
-        {/* Athlete Availability Radar */}
         <div className="mb-8">
           <CoachRadar />
         </div>
 
-        {/* Athletes You Follow */}
         <div className="mb-8">
           <FollowedAthletesPanel />
         </div>
 
-        {/* Recruiting Map */}
         <div className="mb-8">
           <RecruitingMap />
         </div>
 
-        {/* Recent needs list */}
         <section>
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">Your Recent Needs</h2>
@@ -380,7 +401,6 @@ export default function CoachHomeClient({ user }: { user: UserLike }) {
           )}
         </section>
 
-        {/* Account Settings */}
         <section className="mt-10">
           <h2 className="mb-3 text-lg font-semibold">Account Settings</h2>
 

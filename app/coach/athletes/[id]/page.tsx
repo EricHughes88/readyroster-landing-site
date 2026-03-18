@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import FollowAthleteButton from "@/components/athlete/FollowAthleteButton";
+import TeamLogo from "@/components/team/TeamLogo";
 
 type Profile = {
   id?: number | null;
@@ -37,6 +38,8 @@ type Match = {
   weight_class?: string | null;
   team_name?: string | null;
   team_coach_name?: string | null;
+  team_logo_path?: string | null;
+  logoPath?: string | null;
   created_at?: string | null;
 };
 
@@ -65,6 +68,26 @@ function formatDateTime(d?: string | null) {
   const dt = new Date(d);
   if (Number.isNaN(dt.getTime())) return "—";
   return dt.toLocaleString();
+}
+
+function statusBadgeClasses(status?: string | null) {
+  const s = String(status ?? "").toLowerCase();
+
+  if (s === "confirmed") {
+    return "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30";
+  }
+
+  if (s === "pending") {
+    return "bg-amber-500/15 text-amber-300 border border-amber-500/30";
+  }
+
+  return "bg-slate-700/60 text-slate-200 border border-slate-600/60";
+}
+
+function statusLabel(status?: string | null) {
+  const s = String(status ?? "").trim();
+  if (!s) return "Pending";
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export default function CoachAthleteProfilePage() {
@@ -152,8 +175,8 @@ export default function CoachAthleteProfilePage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-950 text-white px-6 py-8">
-        <div className="max-w-5xl mx-auto">
+      <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
+        <div className="mx-auto max-w-5xl">
           <p className="text-slate-300">Loading athlete profile...</p>
         </div>
       </main>
@@ -162,8 +185,8 @@ export default function CoachAthleteProfilePage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-slate-950 text-white px-6 py-8">
-        <div className="max-w-5xl mx-auto">
+      <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
+        <div className="mx-auto max-w-5xl">
           <div className="mb-6">
             <Link
               href="/coach"
@@ -183,8 +206,8 @@ export default function CoachAthleteProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white px-6 py-8">
-      <div className="max-w-5xl mx-auto">
+    <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
+      <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-4xl font-extrabold">Athlete Profile</h1>
@@ -282,28 +305,56 @@ export default function CoachAthleteProfilePage() {
               <div className="text-slate-400">No matches yet.</div>
             ) : (
               <div className="space-y-4">
-                {matches.map((m) => (
-                  <div
-                    key={m.id}
-                    className="rounded-lg border border-slate-800 bg-slate-950/50 p-4"
-                  >
-                    <div className="text-lg font-bold">{m.event_name ?? "—"}</div>
+                {matches.map((m) => {
+                  const displayLogoPath = m.logoPath ?? m.team_logo_path ?? null;
+                  const displayTeamName = m.team_name ?? "Team";
 
-                    <div className="mt-2 text-sm text-slate-300">
-                      Status: {m.status ?? "pending"} | Age: {m.age_group ?? "—"} | Weight:{" "}
-                      {m.weight_class ?? "—"}
-                    </div>
+                  return (
+                    <div
+                      key={m.id}
+                      className="rounded-lg border border-slate-800 bg-slate-950/50 p-4"
+                    >
+                      <div className="flex items-start gap-4">
+                        <TeamLogo
+                          logoPath={displayLogoPath}
+                          teamName={displayTeamName}
+                          size={52}
+                          rounded={false}
+                        />
 
-                    <div className="mt-1 text-sm text-slate-300">
-                      Team: {m.team_name ?? "—"}
-                      {m.team_coach_name ? ` (${m.team_coach_name})` : ""}
-                    </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-lg font-bold">
+                              {m.event_name ?? "—"}
+                            </div>
 
-                    <div className="mt-1 text-xs text-slate-400">
-                      Created: {formatDateTime(m.created_at)}
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusBadgeClasses(
+                                m.status
+                              )}`}
+                            >
+                              {statusLabel(m.status)}
+                            </span>
+                          </div>
+
+                          <div className="mt-2 text-sm text-slate-300">
+                            Age: {m.age_group ?? "—"} | Weight:{" "}
+                            {m.weight_class ?? "—"}
+                          </div>
+
+                          <div className="mt-2 text-sm text-slate-300">
+                            Team: {displayTeamName}
+                            {m.team_coach_name ? ` (${m.team_coach_name})` : ""}
+                          </div>
+
+                          <div className="mt-1 text-xs text-slate-400">
+                            Created: {formatDateTime(m.created_at)}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

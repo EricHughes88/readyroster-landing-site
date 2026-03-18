@@ -1,18 +1,43 @@
 // components/team/TeamLogoUploader.tsx
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import TeamLogo from "@/components/team/TeamLogo";
 
 type Props = {
   teamId?: number | null;
-  onUploaded?: (logoUrl: string) => void;
+  teamName?: string | null;
+  currentLogoPath?: string | null;
+  onUploaded?: (logoUrl: string) => void | Promise<void>;
 };
 
-export default function TeamLogoUploader({ teamId, onUploaded }: Props) {
+export default function TeamLogoUploader({
+  teamId,
+  teamName,
+  currentLogoPath,
+  onUploaded,
+}: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(
+    currentLogoPath ?? null
+  );
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(currentLogoPath ?? null);
+    }
+  }, [currentLogoPath, file]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl && previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
 
   async function handleUpload() {
     if (!file) {
@@ -60,8 +85,9 @@ export default function TeamLogoUploader({ teamId, onUploaded }: Props) {
         throw new Error(saveData?.message || "Saving logo failed");
       }
 
+      setPreviewUrl(uploadData.publicUrl);
       setMessage("Logo uploaded successfully.");
-      onUploaded?.(uploadData.publicUrl);
+      await onUploaded?.(uploadData.publicUrl);
       setFile(null);
 
       if (inputRef.current) {
@@ -89,16 +115,44 @@ export default function TeamLogoUploader({ teamId, onUploaded }: Props) {
         Upload Team Logo
       </div>
 
+      <div style={{ marginBottom: 14 }}>
+        <TeamLogo
+          logoPath={previewUrl}
+          teamName={teamName || "Team"}
+          size={72}
+          rounded={false}
+        />
+      </div>
+
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
         onChange={(e) => {
           const nextFile = e.target.files?.[0] ?? null;
+          setMessage(null);
+
+          if (previewUrl && previewUrl.startsWith("blob:")) {
+            URL.revokeObjectURL(previewUrl);
+          }
+
           setFile(nextFile);
+
+          if (nextFile) {
+            const objectUrl = URL.createObjectURL(nextFile);
+            setPreviewUrl(objectUrl);
+          } else {
+            setPreviewUrl(currentLogoPath ?? null);
+          }
         }}
-        style={{ display: "block", marginBottom: 12 }}
+        style={{ display: "block", marginBottom: 12, color: "#cbd5e1" }}
       />
+
+      {file ? (
+        <div style={{ marginBottom: 12, color: "#cbd5e1", fontSize: 14 }}>
+          Selected: {file.name}
+        </div>
+      ) : null}
 
       <button
         type="button"

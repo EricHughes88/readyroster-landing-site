@@ -10,6 +10,7 @@ import {
   userIsCoach,
   userIsParent,
 } from "@/lib/session";
+import TeamLogo from "@/components/team/TeamLogo";
 
 type MatchStatus = "pending" | "confirmed" | "all";
 
@@ -22,12 +23,10 @@ type MatchRow = {
   notes: string | null;
   status: "pending" | "confirmed";
 
-  // wrestler info
   wrestler_first_name?: string | null;
   wrestler_last_name?: string | null;
 
-  // team info
-  team_id?: number | null; // from t.teamid in /api/matches
+  team_id?: number | null;
   team_name?: string | null;
   team_coach_name?: string | null;
   team_logo_path?: string | null;
@@ -37,7 +36,7 @@ type ApiResponse = {
   ok: boolean;
   matches: MatchRow[];
   page: {
-    page: number; // 1-based (we still treat everything as one big page from the API)
+    page: number;
     limit: number;
     total: number;
   };
@@ -45,8 +44,6 @@ type ApiResponse = {
 };
 
 type SortKey = "team" | "coach" | "event" | "status";
-
-/* ---- CSV helpers ---- */
 
 function formatCsvDate(raw: string | null): string {
   if (!raw) return "";
@@ -57,6 +54,37 @@ function formatCsvDate(raw: string | null): string {
     month: "2-digit",
     day: "2-digit",
   });
+}
+
+function formatEventDate(raw?: string | null): string {
+  if (!raw) return "—";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function statusBadgeClasses(status?: string | null) {
+  const s = String(status ?? "").toLowerCase();
+
+  if (s === "confirmed") {
+    return "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30";
+  }
+
+  if (s === "pending") {
+    return "bg-amber-500/15 text-amber-300 border border-amber-500/30";
+  }
+
+  return "bg-slate-700/60 text-slate-200 border border-slate-600/60";
+}
+
+function statusLabel(status?: string | null) {
+  const s = String(status ?? "").trim();
+  if (!s) return "Pending";
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export default function MatchesTablePage() {
@@ -73,7 +101,6 @@ export default function MatchesTablePage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // pagination state (mirrors URL)
   const [page, setPage] = useState<number>(
     Number(params.get("page") ?? "1") || 1
   );
@@ -81,24 +108,20 @@ export default function MatchesTablePage() {
     Number(params.get("limit") ?? "10") || 10
   );
 
-  // status tabs
   const status: MatchStatus =
     (params.get("status") as MatchStatus | null) ?? "pending";
 
-  // search + filters
   const [searchText, setSearchText] = useState("");
   const [eventFilter, setEventFilter] = useState<string>("all");
   const [teamFilter, setTeamFilter] = useState<string>("all");
   const [ageFilter, setAgeFilter] = useState<string>("all");
   const [weightFilter, setWeightFilter] = useState<string>("all");
 
-  // sorting
   const [sortKey, setSortKey] = useState<SortKey>("event");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const [exporting, setExporting] = useState(false);
 
-  // keep page/limit in sync with URL for back/forward navigation
   useEffect(() => {
     const p = Number(params.get("page") ?? "1") || 1;
     const l = Number(params.get("limit") ?? "10") || 10;
@@ -106,7 +129,6 @@ export default function MatchesTablePage() {
     setLimit(l);
   }, [params]);
 
-  // Load session
   useEffect(() => {
     (async () => {
       try {
@@ -126,21 +148,18 @@ export default function MatchesTablePage() {
     })();
   }, [router]);
 
-  // Build query string for /api/matches
   const qs = useMemo(() => {
     if (!user) return "";
-    const base = buildMatchesQS({ user, status }); // helper decides coach vs parent
+    const base = buildMatchesQS({ user, status });
     const sp = new URLSearchParams(
       base.startsWith("?") ? base.slice(1) : base
     );
-    // We still send page/limit in case you later support it server-side.
     sp.set("page", String(page));
     sp.set("limit", String(limit));
     const s = sp.toString();
     return s ? `?${s}` : "";
   }, [user, status, page, limit]);
 
-  // Load matches whenever status/page/limit change and user is ready
   useEffect(() => {
     if (!userLoaded || !user) return;
     (async () => {
@@ -153,7 +172,6 @@ export default function MatchesTablePage() {
           throw new Error(data?.message || "Failed to load matches");
         }
         setRows(data.matches ?? []);
-        // We treat the API as returning "all rows", so keep local page/limit.
       } catch (e: any) {
         console.error("load matches error", e);
         setErr(e?.message || "Failed to load matches");
@@ -163,7 +181,6 @@ export default function MatchesTablePage() {
     })();
   }, [qs, userLoaded, user]);
 
-  // Update URL helper
   const updateUrl = (updates: Record<string, string | null>) => {
     const current = new URLSearchParams(params.toString());
     for (const [k, v] of Object.entries(updates)) {
@@ -177,7 +194,7 @@ export default function MatchesTablePage() {
 
   const setStatus = (s: MatchStatus) => {
     updateUrl({
-      status: s === "pending" ? null : s, // default is pending, so omit it
+      status: s === "pending" ? null : s,
       page: "1",
     });
   };
@@ -194,8 +211,6 @@ export default function MatchesTablePage() {
       page: "1",
     });
   };
-
-  // --- Search + filter options derived from current data ---
 
   const eventOptions = useMemo(
     () =>
@@ -245,12 +260,9 @@ export default function MatchesTablePage() {
     [rows]
   );
 
-  // --- Apply search, filters, and sorting ---
-
   const filteredAndSortedRows = useMemo(() => {
     let list = [...rows];
 
-    // Search across several fields
     const q = searchText.trim().toLowerCase();
     if (q) {
       list = list.filter((r) => {
@@ -281,7 +293,6 @@ export default function MatchesTablePage() {
       list = list.filter((r) => r.weight_class === weightFilter);
     }
 
-    // Sorting
     const dir = sortDir === "asc" ? 1 : -1;
 
     const getField = (r: MatchRow): string => {
@@ -318,7 +329,6 @@ export default function MatchesTablePage() {
     sortDir,
   ]);
 
-  // Pagination (client-side over filtered rows)
   const total = filteredAndSortedRows.length;
   const startIndex = (page - 1) * limit;
   const pagedRows = filteredAndSortedRows.slice(
@@ -329,7 +339,6 @@ export default function MatchesTablePage() {
 
   const isAll = status === "all";
 
-  // 🔧 IMPORTANT FIX: always use /matches/[id]
   const viewHrefFor = (m: MatchRow) => `/matches/${m.id}`;
 
   const backHref = isCoach ? "/coach" : isParentUser ? "/parent" : "/";
@@ -338,8 +347,6 @@ export default function MatchesTablePage() {
     () => filteredAndSortedRows.filter((r) => r.status === "confirmed"),
     [filteredAndSortedRows]
   );
-
-  // --- Handlers ---
 
   const handleSearchChange = (value: string) => {
     setSearchText(value);
@@ -406,8 +413,6 @@ export default function MatchesTablePage() {
       });
 
       const csvBody = [header.join(","), ...lines].join("\r\n");
-
-      // Add UTF-8 BOM so Excel reads UTF-8 correctly (fixes Brittanyâ€™s)
       const csvWithBom = "\uFEFF" + csvBody;
 
       const blob = new Blob([csvWithBom], {
@@ -427,20 +432,17 @@ export default function MatchesTablePage() {
     }
   };
 
-  // --- Render ---
-
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-8">
-        {/* Header + status tabs + export/back */}
-        <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold">Matches</h1>
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setStatus("pending")}
-              className={`px-3 py-1 text-xs rounded border ${
+              className={`rounded border px-3 py-1 text-xs ${
                 status === "pending"
-                  ? "bg-amber-500 text-slate-900 border-amber-500"
+                  ? "border-amber-500 bg-amber-500 text-slate-900"
                   : "border-slate-700 text-slate-200"
               }`}
             >
@@ -448,9 +450,9 @@ export default function MatchesTablePage() {
             </button>
             <button
               onClick={() => setStatus("confirmed")}
-              className={`px-3 py-1 text-xs rounded border ${
+              className={`rounded border px-3 py-1 text-xs ${
                 status === "confirmed"
-                  ? "bg-emerald-500 text-slate-900 border-emerald-500"
+                  ? "border-emerald-500 bg-emerald-500 text-slate-900"
                   : "border-slate-700 text-slate-200"
               }`}
             >
@@ -458,9 +460,9 @@ export default function MatchesTablePage() {
             </button>
             <button
               onClick={() => setStatus("all")}
-              className={`px-3 py-1 text-xs rounded border ${
+              className={`rounded border px-3 py-1 text-xs ${
                 isAll
-                  ? "bg-slate-100 text-slate-900 border-slate-100"
+                  ? "border-slate-100 bg-slate-100 text-slate-900"
                   : "border-slate-700 text-slate-200"
               }`}
             >
@@ -470,9 +472,9 @@ export default function MatchesTablePage() {
             <button
               onClick={handleExportConfirmed}
               disabled={confirmedForExport.length === 0 || exporting}
-              className={`ml-2 px-3 py-1.5 text-xs rounded border border-slate-700 ${
+              className={`ml-2 rounded border border-slate-700 px-3 py-1.5 text-xs ${
                 confirmedForExport.length === 0 || exporting
-                  ? "bg-slate-800 text-slate-500 cursor-not-allowed opacity-50"
+                  ? "cursor-not-allowed bg-slate-800 text-slate-500 opacity-50"
                   : "bg-slate-900 text-slate-100 hover:bg-slate-800"
               }`}
             >
@@ -481,17 +483,16 @@ export default function MatchesTablePage() {
 
             <Link
               href={backHref as any}
-              className="ml-2 px-3 py-1.5 text-xs rounded bg-slate-800 border border-slate-700 hover:bg-slate-700"
+              className="ml-2 rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs hover:bg-slate-700"
             >
               Back to dashboard
             </Link>
           </div>
         </div>
 
-        {/* Search + filters */}
-        <div className="mb-4 flex flex-wrap gap-3 items-end">
-          <div className="flex-1 min-w-[220px]">
-            <label className="block text-xs text-slate-400 mb-1">
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1">
+            <label className="mb-1 block text-xs text-slate-400">
               Search (team, coach, wrestler, event, notes…)
             </label>
             <input
@@ -504,9 +505,7 @@ export default function MatchesTablePage() {
           </div>
 
           <div className="min-w-[160px]">
-            <label className="block text-xs text-slate-400 mb-1">
-              Event
-            </label>
+            <label className="mb-1 block text-xs text-slate-400">Event</label>
             <select
               value={eventFilter}
               onChange={(e) =>
@@ -524,9 +523,7 @@ export default function MatchesTablePage() {
           </div>
 
           <div className="min-w-[160px]">
-            <label className="block text-xs text-slate-400 mb-1">
-              Team
-            </label>
+            <label className="mb-1 block text-xs text-slate-400">Team</label>
             <select
               value={teamFilter}
               onChange={(e) =>
@@ -544,7 +541,7 @@ export default function MatchesTablePage() {
           </div>
 
           <div className="min-w-[140px]">
-            <label className="block text-xs text-slate-400 mb-1">
+            <label className="mb-1 block text-xs text-slate-400">
               Age group
             </label>
             <select
@@ -564,7 +561,7 @@ export default function MatchesTablePage() {
           </div>
 
           <div className="min-w-[140px]">
-            <label className="block text-xs text-slate-400 mb-1">
+            <label className="mb-1 block text-xs text-slate-400">
               Weight class
             </label>
             <select
@@ -590,8 +587,7 @@ export default function MatchesTablePage() {
           </div>
         )}
 
-        {/* Page size + info */}
-        <div className="flex items-center justify-between gap-4 mb-3 text-sm">
+        <div className="mb-3 flex items-center justify-between gap-4 text-sm">
           <div className="flex items-center gap-2">
             <span className="text-slate-300">Rows per page</span>
             <select
@@ -621,62 +617,87 @@ export default function MatchesTablePage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm border border-slate-800 rounded-lg overflow-hidden">
+            <table className="w-full overflow-hidden rounded-lg border border-slate-800 text-sm">
               <thead className="bg-slate-900/80 text-slate-200">
                 <tr>
                   <th
-                    className="px-3 py-2 text-left cursor-pointer select-none"
+                    className="cursor-pointer select-none px-3 py-2 text-left"
                     onClick={() => toggleSort("team")}
                   >
                     Team{sortIndicator("team")}
                   </th>
                   <th
-                    className="px-3 py-2 text-left cursor-pointer select-none"
-                    onClick={() => toggleSort("coach")}
-                  >
-                    Coach{sortIndicator("coach")}
-                  </th>
-                  <th
-                    className="px-3 py-2 text-left cursor-pointer select-none"
+                    className="cursor-pointer select-none px-3 py-2 text-left"
                     onClick={() => toggleSort("event")}
                   >
                     Event{sortIndicator("event")}
                   </th>
                   <th
-                    className="px-3 py-2 text-left cursor-pointer select-none"
+                    className="cursor-pointer select-none px-3 py-2 text-left"
                     onClick={() => toggleSort("status")}
                   >
                     Status{sortIndicator("status")}
                   </th>
+                  <th
+                    className="cursor-pointer select-none px-3 py-2 text-left"
+                    onClick={() => toggleSort("coach")}
+                  >
+                    Coach{sortIndicator("coach")}
+                  </th>
+                  <th className="px-3 py-2 text-left">Event Date</th>
+                  <th className="px-3 py-2 text-left">Division</th>
                   <th className="px-3 py-2 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {pagedRows.map((m) => (
-                  <tr key={m.id} className="border-t border-slate-800">
-                    <td className="px-3 py-2">
-                      {m.team_name ?? "TBD"}
+                  <tr key={m.id} className="border-t border-slate-800 align-top">
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-3">
+                        <TeamLogo
+                          logoPath={m.team_logo_path ?? null}
+                          teamName={m.team_name ?? "Team"}
+                          size={40}
+                          rounded={false}
+                        />
+                        <div className="min-w-0">
+                          <div className="font-medium text-white">
+                            {m.team_name ?? "TBD"}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {m.team_coach_name ?? "No coach listed"}
+                          </div>
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-3 py-2">
-                      {m.team_coach_name ?? "—"}
+                    <td className="px-3 py-3">{m.event_name ?? "—"}</td>
+                    <td className="px-3 py-3">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClasses(
+                          m.status
+                        )}`}
+                      >
+                        {statusLabel(m.status)}
+                      </span>
                     </td>
-                    <td className="px-3 py-2">
-                      {m.event_name ?? "—"}
+                    <td className="px-3 py-3">{m.team_coach_name ?? "—"}</td>
+                    <td className="px-3 py-3">{formatEventDate(m.event_date)}</td>
+                    <td className="px-3 py-3">
+                      <div className="text-white">
+                        {m.age_group ?? "—"} • {m.weight_class ?? "—"}
+                      </div>
                     </td>
-                    <td className="px-3 py-2 capitalize">
-                      {m.status}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex gap-2">
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
                         <Link
                           href={`${viewHrefFor(m)}?tab=messages` as any}
-                          className="px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700"
+                          className="rounded border border-slate-700 bg-slate-800 px-2 py-1 hover:bg-slate-700"
                         >
                           Message
                         </Link>
                         <Link
                           href={viewHrefFor(m) as any}
-                          className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950"
+                          className="rounded bg-emerald-600 px-2 py-1 text-slate-950 hover:bg-emerald-500"
                         >
                           View
                         </Link>
@@ -684,19 +705,26 @@ export default function MatchesTablePage() {
                     </td>
                   </tr>
                 ))}
+
+                {pagedRows.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
+                      No matches found.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         )}
 
-        {/* Pager */}
         <div className="mt-3 flex items-center justify-end gap-2 text-xs text-slate-400">
           <button
             disabled={page <= 1}
             onClick={() => changePage(page - 1)}
-            className={`px-2 py-1 rounded border border-slate-700 bg-slate-900 ${
+            className={`rounded border border-slate-700 bg-slate-900 px-2 py-1 ${
               page <= 1
-                ? "opacity-40 cursor-not-allowed"
+                ? "cursor-not-allowed opacity-40"
                 : "hover:bg-slate-800"
             }`}
           >
@@ -706,9 +734,9 @@ export default function MatchesTablePage() {
           <button
             disabled={!canGoNext}
             onClick={() => changePage(page + 1)}
-            className={`px-2 py-1 rounded border border-slate-700 bg-slate-900 ${
+            className={`rounded border border-slate-700 bg-slate-900 px-2 py-1 ${
               !canGoNext
-                ? "opacity-40 cursor-not-allowed"
+                ? "cursor-not-allowed opacity-40"
                 : "hover:bg-slate-800"
             }`}
           >
