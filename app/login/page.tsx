@@ -181,6 +181,15 @@ export default function LoginPage() {
             />
           </label>
 
+          <div className="text-right -mt-2">
+            <Link
+              href="/forgot-password"
+              className="text-sm text-slate-300 hover:text-white underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
+
           <button
             type="submit"
             className="rr-btn rr-btn-primary w-full"
@@ -189,7 +198,6 @@ export default function LoginPage() {
             {isPending ? "Signing in…" : "Log in"}
           </button>
 
-          {/* ✅ Admin Button (use <a> to avoid typedRoutes href typing issues) */}
           <a href="/admin/login" className="rr-btn w-full text-center mt-2">
             Admin Login
           </a>
