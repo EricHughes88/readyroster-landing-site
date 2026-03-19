@@ -7,8 +7,8 @@ import { useRouter } from "next/navigation";
 import { getSessionUser } from "@/lib/session";
 import DeleteAccountButton from "@/components/account/DeleteAccountButton";
 import TeamLogo from "@/components/team/TeamLogo";
-
-type RRRole = "Coach" | "Parent" | "Athlete" | "Admin";
+import ParentQuickSummary from "@/components/parent/ParentQuickSummary";
+import ParentRecommendedActions from "@/components/parent/ParentRecommendedActions";
 
 type PotentialMatch = {
   wrestler_interest_id: number;
@@ -228,6 +228,14 @@ export default function ParentDashboardPage() {
             Chat with coaches once a match is made.
           </p>
         </Link>
+      </section>
+
+      <section className="mt-10">
+        <ParentQuickSummary />
+      </section>
+
+      <section className="mt-10">
+        <ParentRecommendedActions />
       </section>
 
       <section className="mt-10 rounded-2xl border border-slate-700 bg-slate-900/60 p-6">

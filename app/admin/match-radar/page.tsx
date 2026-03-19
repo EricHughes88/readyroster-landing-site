@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type RadarRow = {
   wrestler_interest_id: number;
@@ -43,6 +44,20 @@ function safe(v: unknown) {
 }
 
 export default function AdminMatchRadarPage() {
+  const searchParams = useSearchParams();
+  const focusedRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  const focusWrestlerInterestId = Number(
+    searchParams.get("wrestler_interest_id") ?? ""
+  );
+  const focusCoachNeedId = Number(searchParams.get("coach_need_id") ?? "");
+
+  const hasFocusedPair =
+    Number.isFinite(focusWrestlerInterestId) &&
+    focusWrestlerInterestId > 0 &&
+    Number.isFinite(focusCoachNeedId) &&
+    focusCoachNeedId > 0;
+
   const [rows, setRows] = useState<RadarRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -143,7 +158,9 @@ export default function AdminMatchRadarPage() {
     }
 
     const confirmed = window.confirm(
-      `Send outreach to ${targets.length} visible match${targets.length === 1 ? "" : "es"}?`
+      `Send outreach to ${targets.length} visible match${
+        targets.length === 1 ? "" : "es"
+      }?`
     );
     if (!confirmed) return;
 
@@ -176,7 +193,9 @@ export default function AdminMatchRadarPage() {
       }
 
       setBulkResult(
-        `Bulk outreach finished. Sent: ${data.sent ?? 0}. Failed: ${data.failed ?? 0}. Skipped: ${data.skipped ?? 0}.`
+        `Bulk outreach finished. Sent: ${data.sent ?? 0}. Failed: ${
+          data.failed ?? 0
+        }. Skipped: ${data.skipped ?? 0}.`
       );
 
       await load();
@@ -204,15 +223,69 @@ export default function AdminMatchRadarPage() {
     ).sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
+  const focusedRow = useMemo(() => {
+    if (!hasFocusedPair) return null;
+    return (
+      rows.find(
+        (row) =>
+          row.wrestler_interest_id === focusWrestlerInterestId &&
+          row.coach_need_id === focusCoachNeedId
+      ) ?? null
+    );
+  }, [rows, hasFocusedPair, focusWrestlerInterestId, focusCoachNeedId]);
+
   const filteredRows = useMemo(() => {
     let base = rows.slice();
 
     if (onlyUnemailed) {
-      base = base.filter((row) => !(row.emailed_parent && row.emailed_coach));
+      base = base.filter((row) => {
+        const isFocused =
+          hasFocusedPair &&
+          row.wrestler_interest_id === focusWrestlerInterestId &&
+          row.coach_need_id === focusCoachNeedId;
+
+        if (isFocused) return true;
+
+        return !(row.emailed_parent && row.emailed_coach);
+      });
+    }
+
+    if (hasFocusedPair) {
+      const focused = base.find(
+        (row) =>
+          row.wrestler_interest_id === focusWrestlerInterestId &&
+          row.coach_need_id === focusCoachNeedId
+      );
+
+      if (focused) {
+        const rest = base.filter(
+          (row) =>
+            !(
+              row.wrestler_interest_id === focusWrestlerInterestId &&
+              row.coach_need_id === focusCoachNeedId
+            )
+        );
+        return [focused, ...rest];
+      }
     }
 
     return base;
-  }, [rows, onlyUnemailed]);
+  }, [
+    rows,
+    onlyUnemailed,
+    hasFocusedPair,
+    focusWrestlerInterestId,
+    focusCoachNeedId,
+  ]);
+
+  useEffect(() => {
+    if (!loading && focusedRowRef.current) {
+      focusedRowRef.current.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [loading, filteredRows]);
 
   const outreachCount = useMemo(() => {
     return rows.filter((row) => !(row.emailed_parent && row.emailed_coach))
@@ -372,8 +445,7 @@ export default function AdminMatchRadarPage() {
                   bulkSending || visibleOutreachCount === 0
                     ? "not-allowed"
                     : "pointer",
-                opacity:
-                  bulkSending || visibleOutreachCount === 0 ? 0.7 : 1,
+                opacity: bulkSending || visibleOutreachCount === 0 ? 0.7 : 1,
                 minHeight: 36,
                 whiteSpace: "nowrap",
               }}
@@ -419,6 +491,33 @@ export default function AdminMatchRadarPage() {
           </div>
         </div>
       </div>
+
+      {hasFocusedPair ? (
+        <div
+          style={{
+            marginTop: 12,
+            padding: 12,
+            border: `1px solid ${focusedRow ? "#166534" : "#854d0e"}`,
+            borderRadius: 10,
+            background: focusedRow ? "#052e16" : "#3f2a07",
+            color: focusedRow ? "#dcfce7" : "#fde68a",
+          }}
+        >
+          {focusedRow ? (
+            <>
+              Focused from Alerts Dashboard: showing highlighted pair for wrestler
+              interest <b>{focusWrestlerInterestId}</b> and coach need{" "}
+              <b>{focusCoachNeedId}</b>.
+            </>
+          ) : (
+            <>
+              Focus requested for wrestler interest <b>{focusWrestlerInterestId}</b>{" "}
+              and coach need <b>{focusCoachNeedId}</b>, but that pair is not in the
+              current result set.
+            </>
+          )}
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -544,12 +643,27 @@ export default function AdminMatchRadarPage() {
               const alreadySent = row.emailed_parent && row.emailed_coach;
               const isSending = sendingKey === key;
 
+              const isFocused =
+                hasFocusedPair &&
+                row.wrestler_interest_id === focusWrestlerInterestId &&
+                row.coach_need_id === focusCoachNeedId;
+
               return (
-                <tr key={key} style={{ borderTop: "1px solid #334155" }}>
+                <tr
+                  key={key}
+                  ref={isFocused ? focusedRowRef : null}
+                  style={{
+                    borderTop: "1px solid #334155",
+                    background: isFocused ? "rgba(22,163,74,0.14)" : undefined,
+                    boxShadow: isFocused
+                      ? "inset 4px 0 0 0 #22c55e"
+                      : undefined,
+                  }}
+                >
                   <td
                     style={{
                       padding: "10px 12px",
-                      color: "#86efac",
+                      color: isFocused ? "#bbf7d0" : "#86efac",
                       fontWeight: 800,
                     }}
                   >
@@ -557,8 +671,29 @@ export default function AdminMatchRadarPage() {
                   </td>
 
                   <td style={{ padding: "10px 12px" }}>
-                    <div style={{ color: "#fff", fontWeight: 700 }}>
+                    <div
+                      style={{
+                        color: "#fff",
+                        fontWeight: isFocused ? 800 : 700,
+                      }}
+                    >
                       {athleteName || "Unknown athlete"}
+                      {isFocused ? (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 11,
+                            color: "#bbf7d0",
+                            border: "1px solid #166534",
+                            background: "rgba(20,83,45,0.25)",
+                            borderRadius: 999,
+                            padding: "2px 8px",
+                            verticalAlign: "middle",
+                          }}
+                        >
+                          Focused Pair
+                        </span>
+                      ) : null}
                     </div>
                     <div style={{ color: "#94a3b8", fontSize: 12 }}>
                       {safe(row.athlete_city)}

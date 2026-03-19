@@ -368,6 +368,12 @@ export default function AdminDashboardPage() {
     minHeight: 36,
   };
 
+  const alertsNavBtn: React.CSSProperties = {
+    ...navBtn,
+    border: "1px solid #7f1d1d",
+    background: "#3b0a0a",
+  };
+
   const thBtn: React.CSSProperties = {
     background: "transparent",
     border: "none",
@@ -497,6 +503,14 @@ export default function AdminDashboardPage() {
               style={navBtn}
             >
               Match Radar
+            </Link>
+
+            <Link
+              href={"/admin/alerts" as Route}
+              prefetch={false}
+              style={alertsNavBtn}
+            >
+              Alerts
             </Link>
 
             <Link

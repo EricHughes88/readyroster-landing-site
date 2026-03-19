@@ -18,17 +18,43 @@ type MatchPair = {
   team_name: string | null;
 };
 
+function safeStr(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function normalizeBaseUrl(url: string) {
+  return url.replace(/\/+$/, "");
+}
+
 async function ensureLogTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.match_notification_log (
       id BIGSERIAL PRIMARY KEY,
       wrestler_interest_id BIGINT NOT NULL,
       coach_need_id BIGINT NOT NULL,
+      event_name TEXT,
+      parent_email TEXT,
+      coach_email TEXT,
       emailed_parent BOOLEAN NOT NULL DEFAULT FALSE,
       emailed_coach BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (wrestler_interest_id, coach_need_id)
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE public.match_notification_log
+    ADD COLUMN IF NOT EXISTS event_name TEXT
+  `);
+
+  await pool.query(`
+    ALTER TABLE public.match_notification_log
+    ADD COLUMN IF NOT EXISTS parent_email TEXT
+  `);
+
+  await pool.query(`
+    ALTER TABLE public.match_notification_log
+    ADD COLUMN IF NOT EXISTS coach_email TEXT
   `);
 }
 
@@ -127,10 +153,18 @@ async function getMatchesForCoachNeed(coachNeedId: number): Promise<MatchPair[]>
 async function processPairs(pairs: MatchPair[]) {
   await ensureLogTable();
 
-  const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
+  const baseUrl = normalizeBaseUrl(
+    process.env.APP_BASE_URL ?? "http://localhost:3000"
+  );
 
   for (const pair of pairs) {
-    const eventName = pair.event_name || "your event";
+    const eventName = safeStr(pair.event_name) || "your event";
+    const parentName = safeStr(pair.parent_name) || "there";
+    const coachName = safeStr(pair.coach_name) || "Coach";
+    const wrestlerName = safeStr(pair.wrestler_name) || "your wrestler";
+    const teamName = safeStr(pair.team_name) || "team";
+    const parentEmail = safeStr(pair.parent_email) || null;
+    const coachEmail = safeStr(pair.coach_email) || null;
 
     const existing = await pool.query<{
       emailed_parent: boolean;
@@ -155,11 +189,44 @@ async function processPairs(pairs: MatchPair[]) {
       await pool.query(
         `
         INSERT INTO public.match_notification_log
-          (wrestler_interest_id, coach_need_id, emailed_parent, emailed_coach)
-        VALUES ($1, $2, false, false)
+          (
+            wrestler_interest_id,
+            coach_need_id,
+            event_name,
+            parent_email,
+            coach_email,
+            emailed_parent,
+            emailed_coach
+          )
+        VALUES ($1, $2, $3, $4, $5, false, false)
         ON CONFLICT (wrestler_interest_id, coach_need_id) DO NOTHING
         `,
-        [pair.wrestler_interest_id, pair.coach_need_id]
+        [
+          pair.wrestler_interest_id,
+          pair.coach_need_id,
+          eventName,
+          parentEmail,
+          coachEmail,
+        ]
+      );
+    } else {
+      await pool.query(
+        `
+        UPDATE public.match_notification_log
+        SET
+          event_name = COALESCE(NULLIF($3, ''), event_name),
+          parent_email = COALESCE(NULLIF($4, ''), parent_email),
+          coach_email = COALESCE(NULLIF($5, ''), coach_email)
+        WHERE wrestler_interest_id = $1
+          AND coach_need_id = $2
+        `,
+        [
+          pair.wrestler_interest_id,
+          pair.coach_need_id,
+          eventName,
+          parentEmail ?? "",
+          coachEmail ?? "",
+        ]
       );
     }
 
@@ -170,11 +237,11 @@ async function processPairs(pairs: MatchPair[]) {
 
     if (!emailedParent && pair.parent_email) {
       const tpl = matchFoundParentEmail({
-        parentName: pair.parent_name,
-        wrestlerName: pair.wrestler_name || "your wrestler",
+        parentName,
+        wrestlerName,
         eventName,
-        coachName: pair.coach_name,
-        teamName: pair.team_name,
+        coachName,
+        teamName,
         matchUrl,
       });
 
@@ -191,11 +258,19 @@ async function processPairs(pairs: MatchPair[]) {
         await pool.query(
           `
           UPDATE public.match_notification_log
-          SET emailed_parent = true
+          SET
+            emailed_parent = true,
+            event_name = COALESCE(NULLIF($3, ''), event_name),
+            parent_email = COALESCE(NULLIF($4, ''), parent_email)
           WHERE wrestler_interest_id = $1
             AND coach_need_id = $2
           `,
-          [pair.wrestler_interest_id, pair.coach_need_id]
+          [
+            pair.wrestler_interest_id,
+            pair.coach_need_id,
+            eventName,
+            parentEmail ?? "",
+          ]
         );
       } else {
         console.error("Failed sending parent email:", res.error);
@@ -204,10 +279,10 @@ async function processPairs(pairs: MatchPair[]) {
 
     if (!emailedCoach && pair.coach_email) {
       const tpl = matchFoundCoachEmail({
-        coachName: pair.coach_name,
-        wrestlerName: pair.wrestler_name || "athlete",
+        coachName,
+        wrestlerName,
         eventName,
-        parentName: pair.parent_name,
+        parentName,
         matchUrl,
       });
 
@@ -224,11 +299,19 @@ async function processPairs(pairs: MatchPair[]) {
         await pool.query(
           `
           UPDATE public.match_notification_log
-          SET emailed_coach = true
+          SET
+            emailed_coach = true,
+            event_name = COALESCE(NULLIF($3, ''), event_name),
+            coach_email = COALESCE(NULLIF($4, ''), coach_email)
           WHERE wrestler_interest_id = $1
             AND coach_need_id = $2
           `,
-          [pair.wrestler_interest_id, pair.coach_need_id]
+          [
+            pair.wrestler_interest_id,
+            pair.coach_need_id,
+            eventName,
+            coachEmail ?? "",
+          ]
         );
       } else {
         console.error("Failed sending coach email:", res.error);
