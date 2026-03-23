@@ -514,11 +514,19 @@ export default function AdminDashboardPage() {
             </Link>
 
             <Link
+              href={"/admin/events-analytics" as Route}
+              prefetch={false}
+              style={navBtn}
+            >
+              Event Travel Intelligence
+            </Link>
+
+            <Link
               href={"/admin/insights" as Route}
               prefetch={false}
               style={navBtn}
             >
-              Event Intelligence
+              Event Traction
             </Link>
 
             <Link

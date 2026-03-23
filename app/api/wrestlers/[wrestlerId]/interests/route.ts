@@ -13,6 +13,61 @@ const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL })
   : null;
 
+/* ---------- Helpers ---------- */
+
+function toRadians(deg: number) {
+  return deg * (Math.PI / 180);
+}
+
+function haversineMiles(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+) {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) ** 2;
+
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+async function geocodeCityState(city: string, state: string) {
+  const query = `${city}, ${state}`;
+  const url =
+    `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=` +
+    encodeURIComponent(query);
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "User-Agent": "ReadyRoster/1.0",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error(`Geocoding failed with status ${res.status}`);
+  }
+
+  const data = (await res.json()) as Array<{ lat: string; lon: string }>;
+  if (!Array.isArray(data) || data.length === 0) return null;
+
+  const lat = Number(data[0].lat);
+  const lon = Number(data[0].lon);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+
+  return { lat, lon };
+}
+
 /* ---------- Schemas ---------- */
 
 const CreateSchema = z.object({
@@ -20,6 +75,8 @@ const CreateSchema = z.object({
   eventDate: z.string().trim().optional().nullable(),
   weightClass: z.string().min(1),
   ageGroup: z.string().min(1),
+  eventCity: z.string().min(1),
+  eventState: z.string().min(1),
   notes: z.string().optional().nullable(),
 });
 
@@ -28,6 +85,7 @@ const SORT_WHITELIST = new Map<string, string>([
   ["event_date", "event_date"],
   ["weight_class", "weight_class"],
   ["age_group", "age_group"],
+  ["travel_miles", "travel_miles"],
   ["created_at", "created_at"],
 ]);
 
@@ -126,6 +184,9 @@ export async function GET(
           weight_class,
           age_group,
           notes,
+          event_city,
+          event_state,
+          travel_miles,
           parent_ok,
           coach_ok,
           created_at,
@@ -193,7 +254,15 @@ export async function POST(
       );
     }
 
-    const { eventName, eventDate, weightClass, ageGroup, notes } = parsed.data;
+    const {
+      eventName,
+      eventDate,
+      weightClass,
+      ageGroup,
+      eventCity,
+      eventState,
+      notes,
+    } = parsed.data;
 
     const client = await pool.connect();
     try {
@@ -201,9 +270,11 @@ export async function POST(
         id: number;
         first_name: string | null;
         last_name: string | null;
+        city: string | null;
+        state: string | null;
       }>(
         `
-        SELECT id, first_name, last_name
+        SELECT id, first_name, last_name, city, state
         FROM public.wrestlers
         WHERE id = $1
         LIMIT 1
@@ -228,6 +299,33 @@ export async function POST(
           wrestler.last_name ?? ""
         ).trim()}`.trim() || "An athlete you follow";
 
+      let travelMiles: number | null = null;
+
+      const homeCity = String(wrestler.city ?? "").trim();
+      const homeState = String(wrestler.state ?? "").trim();
+
+      if (homeCity && homeState && eventCity && eventState) {
+        try {
+          const [homeCoords, eventCoords] = await Promise.all([
+            geocodeCityState(homeCity, homeState),
+            geocodeCityState(eventCity, eventState),
+          ]);
+
+          if (homeCoords && eventCoords) {
+            travelMiles = Math.round(
+              haversineMiles(
+                homeCoords.lat,
+                homeCoords.lon,
+                eventCoords.lat,
+                eventCoords.lon
+              )
+            );
+          }
+        } catch (geoErr) {
+          console.error("travel distance calculation failed:", geoErr);
+        }
+      }
+
       const r = await client.query<{ id: number }>(
         `
         INSERT INTO public.wrestler_interests
@@ -238,12 +336,25 @@ export async function POST(
             weight_class,
             age_group,
             notes,
+            event_city,
+            event_state,
+            travel_miles,
             is_visible
           )
-        VALUES ($1, $2, $3::date, $4, $5, $6, TRUE)
+        VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, TRUE)
         RETURNING id
         `,
-        [wid, eventName, eventDate || null, weightClass, ageGroup, notes || null]
+        [
+          wid,
+          eventName,
+          eventDate || null,
+          weightClass,
+          ageGroup,
+          notes || null,
+          eventCity,
+          eventState,
+          travelMiles,
+        ]
       );
 
       const interestId = Number(r.rows[0]?.id);
@@ -274,6 +385,7 @@ export async function POST(
           ok: true,
           id: interestId,
           wrestler,
+          travel_miles: travelMiles,
         },
         { status: 201 }
       );

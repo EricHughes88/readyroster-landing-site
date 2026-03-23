@@ -14,6 +14,9 @@ type InterestRow = {
   weight_class: string | null;
   age_group: string | null;
   notes: string | null;
+  event_city?: string | null;
+  event_state?: string | null;
+  travel_miles?: number | null;
   parent_ok?: boolean | null;
   coach_ok?: boolean | null;
   created_at?: string | null;
@@ -35,6 +38,9 @@ type Interest = {
   weightClass: string;
   ageGroup: string | null;
   notes: string | null;
+  eventCity: string | null;
+  eventState: string | null;
+  travelMiles: number | null;
   parentOk?: boolean | null;
   coachOk?: boolean | null;
   createdAt?: string | null;
@@ -105,6 +111,8 @@ export default function WrestlerInterestsPage() {
 
   const [eventNameForm, setEventNameForm] = useState("");
   const [eventDate, setEventDate] = useState("");
+  const [eventCity, setEventCity] = useState("");
+  const [eventState, setEventState] = useState("");
   const [weightClass, setWeightClass] = useState("");
   const [ageGroupForm, setAgeGroupForm] = useState("");
   const [notes, setNotes] = useState("");
@@ -143,6 +151,7 @@ export default function WrestlerInterestsPage() {
     if (!wrestlerId) return;
     setLoading(true);
     setErr(null);
+
     try {
       const res = await fetch(buildApiUrl(), { cache: "no-store" });
       const data = (await res.json()) as ApiResponse;
@@ -155,12 +164,19 @@ export default function WrestlerInterestsPage() {
         weightClass: r.weight_class ?? "",
         ageGroup: r.age_group,
         notes: r.notes,
+        eventCity: r.event_city ?? null,
+        eventState: r.event_state ?? null,
+        travelMiles:
+          r.travel_miles === null || r.travel_miles === undefined
+            ? null
+            : Number(r.travel_miles),
         parentOk: r.parent_ok ?? null,
         coachOk: r.coach_ok ?? null,
         createdAt: r.created_at ?? null,
         matchId: r.match_id ?? null,
         matchStatus: r.match_status ?? null,
       }));
+
       setList(mapped);
       setPage(data.page || { limit: qLimit, offset: qOffset, total: mapped.length });
     } catch (e: any) {
@@ -177,6 +193,8 @@ export default function WrestlerInterestsPage() {
   function resetForm() {
     setEventNameForm("");
     setEventDate("");
+    setEventCity("");
+    setEventState("");
     setWeightClass("");
     setAgeGroupForm("");
     setNotes("");
@@ -197,11 +215,14 @@ export default function WrestlerInterestsPage() {
           body: JSON.stringify({
             eventName: eventNameForm,
             eventDate,
+            eventCity,
+            eventState,
             weightClass,
             ageGroup: ageGroupForm,
             notes,
           }),
         });
+
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) throw new Error(data?.message || "Update failed");
         setMsg("Interest updated.");
@@ -212,15 +233,19 @@ export default function WrestlerInterestsPage() {
           body: JSON.stringify({
             eventName: eventNameForm,
             eventDate,
+            eventCity,
+            eventState,
             weightClass,
             ageGroup: ageGroupForm,
             notes,
           }),
         });
+
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data?.message || "Create failed");
         setMsg("Interest added.");
       }
+
       resetForm();
       updateUrl({ offset: "0" });
       await load();
@@ -235,6 +260,8 @@ export default function WrestlerInterestsPage() {
     setEditingId(row.id);
     setEventNameForm(row.eventName || "");
     setEventDate(row.eventDate ? row.eventDate.slice(0, 10) : "");
+    setEventCity(row.eventCity || "");
+    setEventState(row.eventState || "");
     setWeightClass(row.weightClass || "");
     setAgeGroupForm(row.ageGroup || "");
     setNotes(row.notes || "");
@@ -243,10 +270,13 @@ export default function WrestlerInterestsPage() {
 
   async function remove(id: number) {
     if (!confirm("Delete this interest?")) return;
+
     setErr(null);
     setMsg(null);
+
     const res = await fetch(`/api/interests/${id}`, { method: "DELETE" });
     const data = await res.json().catch(() => ({}));
+
     if (!res.ok || !data.ok) {
       setErr(data?.message || "Delete failed");
     } else {
@@ -347,7 +377,6 @@ export default function WrestlerInterestsPage() {
 
         <h1 className="mb-6 text-center text-2xl font-bold">Event Interests</h1>
 
-        {/* Filters */}
         <section className="mb-8">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
             Filter Saved Interests
@@ -403,6 +432,7 @@ export default function WrestlerInterestsPage() {
               >
                 Apply
               </button>
+
               <button
                 onClick={() => {
                   setEventName("");
@@ -427,7 +457,6 @@ export default function WrestlerInterestsPage() {
           </div>
         </section>
 
-        {/* Create / Edit Form */}
         <section className="mb-8 rounded-xl border border-slate-800 bg-slate-950/60 p-6">
           <h2 className="mb-4 text-lg font-semibold text-white">
             {editingId ? "Edit Interest" : "Add Event Interest"}
@@ -452,6 +481,29 @@ export default function WrestlerInterestsPage() {
                 className={inputClass}
                 value={eventDate}
                 onChange={(e) => setEventDate(e.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-col">
+              <label className={labelClass}>Event City</label>
+              <input
+                className={inputClass}
+                value={eventCity}
+                onChange={(e) => setEventCity(e.target.value)}
+                placeholder="e.g., Tulsa"
+                required
+              />
+            </div>
+
+            <div className="flex flex-col">
+              <label className={labelClass}>Event State</label>
+              <input
+                className={inputClass}
+                value={eventState}
+                onChange={(e) => setEventState(e.target.value)}
+                placeholder="e.g., OK"
+                maxLength={2}
+                required
               />
             </div>
 
@@ -510,8 +562,8 @@ export default function WrestlerInterestsPage() {
                     ? "Updating…"
                     : "Update Interest"
                   : saving
-                  ? "Saving…"
-                  : "Add Interest"}
+                    ? "Saving…"
+                    : "Add Interest"}
               </button>
 
               {editingId && (
@@ -569,6 +621,7 @@ export default function WrestlerInterestsPage() {
             >
               Prev
             </button>
+
             <button
               disabled={!canNext}
               onClick={() => updateUrl({ offset: String(page.offset + page.limit) })}
@@ -625,6 +678,7 @@ export default function WrestlerInterestsPage() {
                   <th className="px-3 py-2 text-left">Actions</th>
                 </tr>
               </thead>
+
               <tbody>
                 {list.map((r) => {
                   const showConfirmButtons =
@@ -682,6 +736,7 @@ export default function WrestlerInterestsPage() {
                               >
                                 {isActionLoading ? "Confirming…" : "Confirm Match"}
                               </button>
+
                               <button
                                 disabled={isActionLoading}
                                 onClick={() => r.matchId && rejectMatch(r.matchId)}

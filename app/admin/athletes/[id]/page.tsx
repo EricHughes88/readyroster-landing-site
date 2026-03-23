@@ -1,3 +1,4 @@
+// app/admin/athletes/[id]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -25,6 +26,9 @@ type Interest = {
   age_group?: string | null;
   weight_class?: string | null;
   notes?: string | null;
+  event_city?: string | null;
+  event_state?: string | null;
+  travel_miles?: number | null;
   created_at?: string | null;
 };
 
@@ -89,6 +93,20 @@ function formatDateOnly(d?: string | null) {
   const dt = new Date(d);
   if (Number.isNaN(dt.getTime())) return "—";
   return dt.toLocaleDateString("en-US");
+}
+
+function formatMiles(v?: number | null) {
+  if (v === null || v === undefined || !Number.isFinite(Number(v))) return "—";
+  return `${Math.round(Number(v))} mi`;
+}
+
+function getTravelLabel(v?: number | null) {
+  if (v === null || v === undefined || !Number.isFinite(Number(v))) return "—";
+  const miles = Number(v);
+  if (miles <= 50) return "Local";
+  if (miles <= 150) return "Regional";
+  if (miles <= 300) return "Long Distance";
+  return "Major Travel";
 }
 
 function viewerDisplayName(v: Viewer) {
@@ -287,6 +305,62 @@ export default function AdminAthleteProfilePage() {
   const parentEmail = safe(profile?.parent_email) || "—";
   const parentPhone = safe(profile?.parent_phone) || "—";
 
+  const travelStats = useMemo(() => {
+    const valid = interests.filter(
+      (i) =>
+        i.travel_miles !== null &&
+        i.travel_miles !== undefined &&
+        Number.isFinite(Number(i.travel_miles))
+    );
+
+    if (valid.length === 0) {
+      return {
+        count: 0,
+        avg: null as number | null,
+        max: null as number | null,
+      };
+    }
+
+    const miles = valid.map((i) => Number(i.travel_miles));
+    const sum = miles.reduce((a, b) => a + b, 0);
+    const avg = sum / miles.length;
+    const max = Math.max(...miles);
+
+    return {
+      count: valid.length,
+      avg,
+      max,
+    };
+  }, [interests]);
+
+  const travelBreakdown = useMemo(() => {
+    const counts = {
+      local: 0,
+      regional: 0,
+      longDistance: 0,
+      majorTravel: 0,
+    };
+
+    interests.forEach((i) => {
+      if (i.travel_miles === null || i.travel_miles === undefined) return;
+
+      const miles = Number(i.travel_miles);
+      if (!Number.isFinite(miles)) return;
+
+      if (miles <= 50) {
+        counts.local += 1;
+      } else if (miles <= 150) {
+        counts.regional += 1;
+      } else if (miles <= 300) {
+        counts.longDistance += 1;
+      } else {
+        counts.majorTravel += 1;
+      }
+    });
+
+    return counts;
+  }, [interests]);
+
   if (loading) {
     return (
       <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto", color: "#e5e7eb" }}>
@@ -461,6 +535,146 @@ export default function AdminAthleteProfilePage() {
           marginTop: 16,
           border: "1px solid #334155",
           borderRadius: 12,
+          padding: 16,
+          background: "rgba(2,6,23,0.35)",
+        }}
+      >
+        <div style={{ fontWeight: 800, color: "#fff", marginBottom: 12 }}>
+          Travel Insights
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+          <div
+            style={{
+              border: "1px solid #334155",
+              borderRadius: 10,
+              padding: 12,
+              background: "rgba(255,255,255,0.02)",
+            }}
+          >
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>Avg Travel</div>
+            <div style={{ color: "#fff", fontSize: 24, fontWeight: 900, marginTop: 4 }}>
+              {formatMiles(travelStats.avg)}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #334155",
+              borderRadius: 10,
+              padding: 12,
+              background: "rgba(255,255,255,0.02)",
+            }}
+          >
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>Farthest Event</div>
+            <div style={{ color: "#fff", fontSize: 24, fontWeight: 900, marginTop: 4 }}>
+              {formatMiles(travelStats.max)}
+            </div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #334155",
+              borderRadius: 10,
+              padding: 12,
+              background: "rgba(255,255,255,0.02)",
+            }}
+          >
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>Events Traveled</div>
+            <div style={{ color: "#fff", fontSize: 24, fontWeight: 900, marginTop: 4 }}>
+              {travelStats.count}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        style={{
+          marginTop: 16,
+          border: "1px solid #334155",
+          borderRadius: 12,
+          padding: 16,
+          background: "rgba(2,6,23,0.35)",
+        }}
+      >
+        <div style={{ fontWeight: 800, color: "#fff", marginBottom: 12 }}>
+          Travel Breakdown
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid #334155",
+              borderRadius: 10,
+              padding: 12,
+              background: "rgba(255,255,255,0.02)",
+            }}
+          >
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>Local</div>
+            <div style={{ color: "#fff", fontSize: 24, fontWeight: 900, marginTop: 4 }}>
+              {travelBreakdown.local}
+            </div>
+            <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>0–50 mi</div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #334155",
+              borderRadius: 10,
+              padding: 12,
+              background: "rgba(255,255,255,0.02)",
+            }}
+          >
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>Regional</div>
+            <div style={{ color: "#fff", fontSize: 24, fontWeight: 900, marginTop: 4 }}>
+              {travelBreakdown.regional}
+            </div>
+            <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>51–150 mi</div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #334155",
+              borderRadius: 10,
+              padding: 12,
+              background: "rgba(255,255,255,0.02)",
+            }}
+          >
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>Long Distance</div>
+            <div style={{ color: "#fff", fontSize: 24, fontWeight: 900, marginTop: 4 }}>
+              {travelBreakdown.longDistance}
+            </div>
+            <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>151–300 mi</div>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #334155",
+              borderRadius: 10,
+              padding: 12,
+              background: "rgba(255,255,255,0.02)",
+            }}
+          >
+            <div style={{ color: "#94a3b8", fontSize: 12 }}>Major Travel</div>
+            <div style={{ color: "#fff", fontSize: 24, fontWeight: 900, marginTop: 4 }}>
+              {travelBreakdown.majorTravel}
+            </div>
+            <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 4 }}>301+ mi</div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        style={{
+          marginTop: 16,
+          border: "1px solid #334155",
+          borderRadius: 12,
           background: "rgba(2,6,23,0.35)",
         }}
       >
@@ -472,10 +686,13 @@ export default function AdminAthleteProfilePage() {
           {recentViewers.length === 0 ? (
             <div style={{ color: "#94a3b8" }}>No coach views yet.</div>
           ) : (
-            recentViewers.map((viewer) => (
+            recentViewers.map((viewer, index) => (
               <div
                 key={viewer.id}
-                style={{ padding: "10px 0", borderTop: "1px solid #334155" }}
+                style={{
+                  padding: "10px 0",
+                  borderTop: index === 0 ? "none" : "1px solid #334155",
+                }}
               >
                 <div style={{ fontWeight: 800, color: "#fff" }}>
                   {viewerDisplayName(viewer)}
@@ -508,22 +725,48 @@ export default function AdminAthleteProfilePage() {
           {interests.length === 0 ? (
             <div style={{ color: "#94a3b8" }}>No posts yet.</div>
           ) : (
-            interests.map((i) => (
-              <div key={i.id} style={{ padding: "10px 0", borderTop: "1px solid #334155" }}>
-                <div style={{ fontWeight: 800, color: "#fff" }}>{i.event_name ?? "—"}</div>
-                <div style={{ color: "#cbd5e1", marginTop: 2, fontSize: 13 }}>
-                  Age: {i.age_group ?? "—"} | Weight: {i.weight_class ?? "—"}
-                </div>
-                <div style={{ color: "#94a3b8", marginTop: 2, fontSize: 12 }}>
-                  Created: {formatDateTime(i.created_at)}
-                </div>
-                {i.notes ? (
-                  <div style={{ marginTop: 6, color: "#cbd5e1", fontSize: 13 }}>
-                    Notes: {i.notes}
+            interests.map((i, index) => {
+              const eventLocation =
+                [safe(i.event_city), safe(i.event_state)].filter(Boolean).join(", ") || "—";
+
+              return (
+                <div
+                  key={i.id}
+                  style={{
+                    padding: "10px 0",
+                    borderTop: index === 0 ? "none" : "1px solid #334155",
+                  }}
+                >
+                  <div style={{ fontWeight: 800, color: "#fff" }}>{i.event_name ?? "—"}</div>
+
+                  <div style={{ color: "#cbd5e1", marginTop: 2, fontSize: 13 }}>
+                    Date: {formatDateOnly(i.event_date)}
                   </div>
-                ) : null}
-              </div>
-            ))
+
+                  <div style={{ color: "#cbd5e1", marginTop: 2, fontSize: 13 }}>
+                    Age: {i.age_group ?? "—"} | Weight: {i.weight_class ?? "—"}
+                  </div>
+
+                  <div style={{ color: "#cbd5e1", marginTop: 2, fontSize: 13 }}>
+                    Event Location: {eventLocation}
+                  </div>
+
+                  <div style={{ color: "#cbd5e1", marginTop: 2, fontSize: 13 }}>
+                    Distance: {formatMiles(i.travel_miles)} | Label: {getTravelLabel(i.travel_miles)}
+                  </div>
+
+                  <div style={{ color: "#94a3b8", marginTop: 2, fontSize: 12 }}>
+                    Created: {formatDateTime(i.created_at)}
+                  </div>
+
+                  {i.notes ? (
+                    <div style={{ marginTop: 6, color: "#cbd5e1", fontSize: 13 }}>
+                      Notes: {i.notes}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
           )}
         </div>
       </section>
@@ -544,8 +787,14 @@ export default function AdminAthleteProfilePage() {
           {matches.length === 0 ? (
             <div style={{ color: "#94a3b8" }}>No matches yet.</div>
           ) : (
-            matches.map((m) => (
-              <div key={m.id} style={{ padding: "10px 0", borderTop: "1px solid #334155" }}>
+            matches.map((m, index) => (
+              <div
+                key={m.id}
+                style={{
+                  padding: "10px 0",
+                  borderTop: index === 0 ? "none" : "1px solid #334155",
+                }}
+              >
                 <div style={{ fontWeight: 800, color: "#fff" }}>{m.event_name ?? "—"}</div>
                 <div style={{ color: "#cbd5e1", marginTop: 2, fontSize: 13 }}>
                   Status: {m.status ?? "pending"} | Age: {m.age_group ?? "—"} | Weight:{" "}

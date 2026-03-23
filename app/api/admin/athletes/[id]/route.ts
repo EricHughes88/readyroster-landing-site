@@ -62,6 +62,9 @@ export async function GET(
         age_group,
         weight_class,
         notes,
+        event_city,
+        event_state,
+        travel_miles,
         created_at
       FROM public.wrestler_interests
       WHERE wrestler_id = $1

@@ -1,3 +1,4 @@
+// app/admin/athletes/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -12,6 +13,7 @@ type AthleteRow = {
   state: string | null;
   dob: string | null;
   parent_user_id: number | null;
+  avg_travel_miles?: number | null;
 
   parent_firstname?: string | null;
   parent_lastname?: string | null;
@@ -48,6 +50,7 @@ function exportCsv(rows: AthleteRow[]) {
     "city",
     "state",
     "dob",
+    "avg_travel_miles",
     "parent_user_id",
     "parent_firstname",
     "parent_lastname",
@@ -87,6 +90,11 @@ function fmtDob(dob: string | null) {
   return String(dob).slice(0, 10);
 }
 
+function fmtMiles(v?: number | null) {
+  if (v === null || v === undefined || !Number.isFinite(Number(v))) return "—";
+  return `${Math.round(Number(v))} mi`;
+}
+
 type EditAthleteForm = {
   id: number;
   first_name: string;
@@ -103,6 +111,7 @@ export default function AdminAthletesDbPage() {
 
   const [stateFilter, setStateFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("default");
 
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -114,10 +123,17 @@ export default function AdminAthletesDbPage() {
     setErr(null);
 
     try {
-      const qs =
-        stateFilter && stateFilter !== "ALL"
-          ? `?state=${encodeURIComponent(stateFilter)}`
-          : "";
+      const qsParams = new URLSearchParams();
+
+      if (stateFilter && stateFilter !== "ALL") {
+        qsParams.set("state", stateFilter);
+      }
+
+      if (sortBy && sortBy !== "default") {
+        qsParams.set("sort", sortBy);
+      }
+
+      const qs = qsParams.toString() ? `?${qsParams.toString()}` : "";
 
       const res = await fetch(`/api/admin/athletes${qs}`, {
         cache: "no-store",
@@ -145,7 +161,7 @@ export default function AdminAthletesDbPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateFilter]);
+  }, [stateFilter, sortBy]);
 
   const stateCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -172,6 +188,7 @@ export default function AdminAthletesDbPage() {
       const city = (r.city || "").toLowerCase();
       const state = (r.state || "").toLowerCase();
       const dob = (r.dob || "").toLowerCase();
+      const avgTravel = fmtMiles(r.avg_travel_miles).toLowerCase();
 
       const pName = fmtName(
         r.parent_firstname || "",
@@ -185,6 +202,7 @@ export default function AdminAthletesDbPage() {
         city.includes(q) ||
         state.includes(q) ||
         dob.includes(q) ||
+        avgTravel.includes(q) ||
         pName.includes(q) ||
         pEmail.includes(q) ||
         pPhone.includes(q)
@@ -265,7 +283,7 @@ export default function AdminAthletesDbPage() {
               Athletes Database
             </h1>
             <p className="mt-1 text-sm text-slate-300">
-              Admin directory for athletes. Filter by state, search, export, and edit.
+              Admin directory for athletes. Filter by state, search, export, edit, and sort by travel.
             </p>
 
             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
@@ -298,6 +316,16 @@ export default function AdminAthletesDbPage() {
                     {st}
                   </option>
                 ))}
+              </select>
+
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-white"
+              >
+                <option value="default">Sort: Default</option>
+                <option value="travel_desc">Sort: Avg Travel High → Low</option>
+                <option value="travel_asc">Sort: Avg Travel Low → High</option>
               </select>
 
               <input
@@ -393,6 +421,7 @@ export default function AdminAthletesDbPage() {
                     <th className="px-4 py-3">City</th>
                     <th className="px-4 py-3">State</th>
                     <th className="px-4 py-3">DOB</th>
+                    <th className="px-4 py-3">Avg Travel</th>
                     <th className="px-4 py-3">Parent</th>
                     <th className="px-4 py-3">Parent Email</th>
                     <th className="px-4 py-3">Parent Phone</th>
@@ -419,6 +448,7 @@ export default function AdminAthletesDbPage() {
                       <td className="px-4 py-3">{r.city || "—"}</td>
                       <td className="px-4 py-3">{r.state || "—"}</td>
                       <td className="px-4 py-3">{fmtDob(r.dob)}</td>
+                      <td className="px-4 py-3">{fmtMiles(r.avg_travel_miles)}</td>
 
                       <td className="px-4 py-3">
                         {fmtName(r.parent_firstname || "", r.parent_lastname || "")}

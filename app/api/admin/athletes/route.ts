@@ -1,4 +1,3 @@
-// app/api/admin/athletes/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authConfig } from "@/auth.config";
@@ -52,13 +51,14 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const stateRaw = (url.searchParams.get("state") || "").trim();
     const qRaw = (url.searchParams.get("q") || "").trim();
+    const sortRaw = (url.searchParams.get("sort") || "").trim().toLowerCase();
 
     const params: any[] = [];
     const where: string[] = [];
 
     if (stateRaw && stateRaw.toUpperCase() !== "ALL") {
       params.push(stateRaw);
-      where.push(`UPPER(TRIM(state)) = UPPER(TRIM($${params.length}))`);
+      where.push(`UPPER(TRIM(aad.state)) = UPPER(TRIM($${params.length}))`);
     }
 
     if (qRaw) {
@@ -66,37 +66,61 @@ export async function GET(req: NextRequest) {
       const p = `$${params.length}`;
 
       where.push(`(
-        COALESCE(first_name, '') ILIKE ${p} OR
-        COALESCE(last_name, '') ILIKE ${p} OR
-        COALESCE(city, '') ILIKE ${p} OR
-        COALESCE(state, '') ILIKE ${p} OR
-        COALESCE(parent_firstname, '') ILIKE ${p} OR
-        COALESCE(parent_lastname, '') ILIKE ${p} OR
-        COALESCE(parent_email, '') ILIKE ${p} OR
-        COALESCE(parent_phone, '') ILIKE ${p} OR
-        COALESCE(dob::text, '') ILIKE ${p}
+        COALESCE(aad.first_name, '') ILIKE ${p} OR
+        COALESCE(aad.last_name, '') ILIKE ${p} OR
+        COALESCE(aad.city, '') ILIKE ${p} OR
+        COALESCE(aad.state, '') ILIKE ${p} OR
+        COALESCE(aad.parent_firstname, '') ILIKE ${p} OR
+        COALESCE(aad.parent_lastname, '') ILIKE ${p} OR
+        COALESCE(aad.parent_email, '') ILIKE ${p} OR
+        COALESCE(aad.parent_phone, '') ILIKE ${p} OR
+        COALESCE(aad.dob::text, '') ILIKE ${p}
       )`);
     }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
+    let orderBy = `aad.last_name NULLS LAST, aad.first_name NULLS LAST`;
+
+    if (sortRaw === "travel_desc") {
+      orderBy = `avg_travel_miles DESC NULLS LAST, aad.last_name NULLS LAST, aad.first_name NULLS LAST`;
+    } else if (sortRaw === "travel_asc") {
+      orderBy = `avg_travel_miles ASC NULLS LAST, aad.last_name NULLS LAST, aad.first_name NULLS LAST`;
+    }
+
     const sql = `
       SELECT
-        id,
-        first_name,
-        last_name,
-        city,
-        state,
-        dob,
-        parent_user_id,
-        parent_firstname,
-        parent_lastname,
-        parent_email,
-        parent_phone,
-        NULL::text AS created_at
-      FROM public.admin_athletes_directory
+        aad.id,
+        aad.first_name,
+        aad.last_name,
+        aad.city,
+        aad.state,
+        aad.dob,
+        aad.parent_user_id,
+        aad.parent_firstname,
+        aad.parent_lastname,
+        aad.parent_email,
+        aad.parent_phone,
+        NULL::text AS created_at,
+        ROUND(AVG(wi.travel_miles))::int AS avg_travel_miles
+      FROM public.admin_athletes_directory aad
+      LEFT JOIN public.wrestler_interests wi
+        ON wi.wrestler_id = aad.id
+       AND wi.travel_miles IS NOT NULL
       ${whereSql}
-      ORDER BY last_name NULLS LAST, first_name NULLS LAST
+      GROUP BY
+        aad.id,
+        aad.first_name,
+        aad.last_name,
+        aad.city,
+        aad.state,
+        aad.dob,
+        aad.parent_user_id,
+        aad.parent_firstname,
+        aad.parent_lastname,
+        aad.parent_email,
+        aad.parent_phone
+      ORDER BY ${orderBy}
       LIMIT 1000;
     `;
 
@@ -113,6 +137,7 @@ export async function GET(req: NextRequest) {
             filters: {
               state: stateRaw || null,
               q: qRaw || null,
+              sort: sortRaw || null,
             },
             returnedCount: rows.length,
           },
