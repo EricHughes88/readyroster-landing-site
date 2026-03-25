@@ -50,7 +50,12 @@ function formatEventDate(value?: string | null) {
 
 export default function ParentWrestlerMatchesPage() {
   const params = useParams<{ id: string }>();
-  const wrestlerId = Number(params.id);
+  const rawWrestlerId = params?.id;
+  const wrestlerId =
+    rawWrestlerId && !Number.isNaN(Number(rawWrestlerId))
+      ? Number(rawWrestlerId)
+      : null;
+
   const sp = useSearchParams();
   const router = useRouter();
 
@@ -66,19 +71,12 @@ export default function ParentWrestlerMatchesPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
-    if (!wrestlerId) {
-      setRows([]);
-      setLoading(false);
-      return;
-    }
-
     (async () => {
       setLoading(true);
       setErr(null);
 
       try {
         const qs = new URLSearchParams();
-        qs.set("wrestlerId", String(wrestlerId));
         qs.set("status", status);
 
         const res = await fetch(`/api/matches?${qs.toString()}`, {
@@ -114,7 +112,7 @@ export default function ParentWrestlerMatchesPage() {
         setLoading(false);
       }
     })();
-  }, [wrestlerId, status]);
+  }, [status]);
 
   function changeStatus(nextStatus: MatchStatus) {
     const next = new URLSearchParams(sp.toString());
@@ -246,6 +244,11 @@ export default function ParentWrestlerMatchesPage() {
     };
   }
 
+  const backHref =
+    wrestlerId && wrestlerId > 0
+      ? (`/parent/wrestlers/${wrestlerId}` as any)
+      : ("/parent" as any);
+
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -286,7 +289,7 @@ export default function ParentWrestlerMatchesPage() {
           </button>
 
           <Link
-            href={`/parent/wrestlers/${wrestlerId}` as any}
+            href={backHref}
             className="rounded border border-slate-500 bg-slate-700 px-4 py-2"
           >
             Back to dashboard

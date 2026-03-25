@@ -6,22 +6,14 @@ import type { Route } from "next";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-type Interest = {
-  id: number;
-  wrestler_id: number;
-  event_name: string | null;
-  event_date: string | null;
-  weight_class: string;
-  age_group: string;
-  notes: string | null;
-};
-
-// Keep your original shape, but allow the API to send need id under different names.
 type MatchRow = {
-  // sometimes API returns need id as id, need_id, or needId
+  // API may send coach need id as coach_need_id or id
   id?: number;
-  need_id?: number;
-  needId?: number;
+  coach_need_id?: number;
+  coachNeedId?: number;
+
+  wrestler_interest_id?: number;
+  wrestler_id?: number;
 
   event_name: string;
   event_date: string | null;
@@ -30,14 +22,24 @@ type MatchRow = {
   city: string | null;
   state: string | null;
   notes: string | null;
+
   coach_name: string | null;
-  coach_email: string | null;
-  team_name: string | null;
+  contactemail?: string | null;
+  coach_email?: string | null;
+  team_name?: string | null;
+  teamname?: string | null;
 
   match_id?: number | null;
   match_status?: "pending" | "confirmed" | "declined" | null;
   parent_ok?: boolean | null;
   coach_ok?: boolean | null;
+};
+
+type PotentialApiResponse = {
+  ok: boolean;
+  role?: string;
+  potentialMatches?: MatchRow[];
+  message?: string;
 };
 
 type NormalizedRow = MatchRow & { __needId: number };
@@ -51,20 +53,15 @@ function fmtDate(iso?: string | null) {
 
 function normalizeNeedId(r: MatchRow): number {
   const maybe =
+    (r as any)?.coach_need_id ??
+    (r as any)?.coachNeedId ??
     (r as any)?.id ??
-    (r as any)?.need_id ??
-    (r as any)?.needId ??
     0;
 
   const n = Number(maybe);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-/**
- * Dedupe by normalized need id. If duplicates exist:
- * - Prefer rows with match_id
- * - Prefer confirmed > pending > declined > none
- */
 function dedupeAndNormalize(input: unknown): NormalizedRow[] {
   const list = Array.isArray(input) ? (input as MatchRow[]) : [];
 
@@ -115,36 +112,45 @@ export default function MatchesPage() {
   }>();
   const router = useRouter();
 
-  const [interest, setInterest] = useState<Interest | null>(null);
   const [rows, setRows] = useState<NormalizedRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyNeedId, setBusyNeedId] = useState<number | null>(null);
+
+  const numericInterestId = Number(interestId || 0);
 
   async function load() {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`/api/interests/${interestId}/matches`, {
+      const res = await fetch("/api/matches/potential", {
         cache: "no-store",
       });
 
-      const data = await res
+      const data = (await res
         .json()
-        .catch(() => ({ ok: false, message: "Invalid JSON response." }));
+        .catch(() => ({ ok: false, message: "Invalid JSON response." }))) as PotentialApiResponse;
 
       if (!res.ok || !data?.ok) {
-        setError(data?.message || "Failed to load matches.");
-        setInterest(null);
+        setError(data?.message || "Failed to load potential matches.");
         setRows([]);
-      } else {
-        setInterest(data.interest ?? null);
-        setRows(dedupeAndNormalize(data.matches));
+        return;
       }
+
+      const allPotential = Array.isArray(data.potentialMatches)
+        ? data.potentialMatches
+        : [];
+
+      // Only show rows for this specific saved interest
+      const filtered = allPotential.filter((row) => {
+        const rowInterestId = Number((row as any)?.wrestler_interest_id ?? 0);
+        return rowInterestId === numericInterestId;
+      });
+
+      setRows(dedupeAndNormalize(filtered));
     } catch {
-      setError("Network error loading matches.");
-      setInterest(null);
+      setError("Network error loading potential matches.");
       setRows([]);
     } finally {
       setLoading(false);
@@ -184,10 +190,12 @@ export default function MatchesPage() {
     }
   }
 
+  const headerRow = useMemo(() => rows[0] ?? null, [rows]);
+
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-5xl px-4 py-8">
-        <div className="flex items-center justify-between text-sm text-slate-300 mb-4">
+        <div className="mb-4 flex items-center justify-between text-sm text-slate-300">
           <button
             className="hover:text-white"
             onClick={() => router.push("/parent" as Route)}
@@ -203,7 +211,7 @@ export default function MatchesPage() {
           </Link>
         </div>
 
-        <div className="flex items-center gap-3 mb-2">
+        <div className="mb-2 flex items-center gap-3">
           <h1 className="text-2xl font-semibold">Potential Matches</h1>
           <button
             className="rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700 disabled:opacity-60"
@@ -214,21 +222,18 @@ export default function MatchesPage() {
           </button>
         </div>
 
-        {interest && (
+        {headerRow && (
           <p className="mb-6 text-slate-300">
             Looking for{" "}
-            <span className="font-semibold">{interest.weight_class}</span> –{" "}
-            <span className="font-semibold">{interest.age_group}</span> at{" "}
-            <span className="font-semibold">
-              {interest.event_name || "Event"}
-            </span>{" "}
-            on{" "}
-            <span className="font-semibold">{fmtDate(interest.event_date)}</span>
+            <span className="font-semibold">{headerRow.weight_class}</span> –{" "}
+            <span className="font-semibold">{headerRow.age_group}</span> at{" "}
+            <span className="font-semibold">{headerRow.event_name || "Event"}</span>{" "}
+            on <span className="font-semibold">{fmtDate(headerRow.event_date)}</span>
           </p>
         )}
 
         {error && (
-          <div className="mb-6 rounded-md bg-red-900/40 border border-red-800 px-4 py-3 text-sm text-red-200">
+          <div className="mb-6 rounded-md border border-red-800 bg-red-900/40 px-4 py-3 text-sm text-red-200">
             {error}
           </div>
         )}
@@ -237,16 +242,16 @@ export default function MatchesPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-800/70 text-slate-300">
               <tr>
-                <th className="text-left px-3 py-2">Team</th>
-                <th className="text-left px-3 py-2">Coach</th>
-                <th className="text-left px-3 py-2">Event</th>
-                <th className="text-left px-3 py-2">Date</th>
-                <th className="text-left px-3 py-2">Weight</th>
-                <th className="text-left px-3 py-2">Age Group</th>
-                <th className="text-left px-3 py-2">Location</th>
-                <th className="text-left px-3 py-2">Notes</th>
-                <th className="text-left px-3 py-2">Contact</th>
-                <th className="text-left px-3 py-2">Action</th>
+                <th className="px-3 py-2 text-left">Team</th>
+                <th className="px-3 py-2 text-left">Coach</th>
+                <th className="px-3 py-2 text-left">Event</th>
+                <th className="px-3 py-2 text-left">Date</th>
+                <th className="px-3 py-2 text-left">Weight</th>
+                <th className="px-3 py-2 text-left">Age Group</th>
+                <th className="px-3 py-2 text-left">Location</th>
+                <th className="px-3 py-2 text-left">Notes</th>
+                <th className="px-3 py-2 text-left">Contact</th>
+                <th className="px-3 py-2 text-left">Action</th>
               </tr>
             </thead>
 
@@ -269,10 +274,17 @@ export default function MatchesPage() {
                 const isConfirmed = m.match_status === "confirmed";
                 const isPending = m.match_status === "pending";
 
+                const teamName = m.team_name || m.teamname || "—";
+                const coachName = m.coach_name || "—";
+                const coachEmail = m.coach_email || m.contactemail || null;
+
                 return (
-                  <tr key={`need-${needId}`} className="border-t border-slate-800">
-                    <td className="px-3 py-2">{m.team_name || "—"}</td>
-                    <td className="px-3 py-2">{m.coach_name || "—"}</td>
+                  <tr
+                    key={`need-${needId}`}
+                    className="border-t border-slate-800"
+                  >
+                    <td className="px-3 py-2">{teamName}</td>
+                    <td className="px-3 py-2">{coachName}</td>
                     <td className="px-3 py-2">{m.event_name}</td>
                     <td className="px-3 py-2">{fmtDate(m.event_date)}</td>
                     <td className="px-3 py-2">{m.weight_class}</td>
@@ -283,11 +295,11 @@ export default function MatchesPage() {
                     <td className="px-3 py-2 text-slate-400">{m.notes || "—"}</td>
 
                     <td className="px-3 py-2">
-                      {m.coach_email ? (
+                      {coachEmail ? (
                         <a
-                          className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500"
-                          href={`mailto:${m.coach_email}?subject=${encodeURIComponent(
-                            `Ready Roster: ${interest?.event_name ?? "Match"}`
+                          className="rounded bg-emerald-600 px-2 py-1 hover:bg-emerald-500"
+                          href={`mailto:${coachEmail}?subject=${encodeURIComponent(
+                            `Ready Roster: ${m.event_name ?? "Match"}`
                           )}`}
                         >
                           Email
@@ -301,17 +313,17 @@ export default function MatchesPage() {
                       {isConfirmed ? (
                         <Link
                           href={`/matches/${m.match_id}/chat` as Route}
-                          className="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500"
+                          className="rounded bg-emerald-600 px-3 py-1 hover:bg-emerald-500"
                         >
                           Message
                         </Link>
                       ) : hasMatch && isPending ? (
-                        <span className="inline-block px-3 py-1 rounded bg-amber-600/70 text-white">
+                        <span className="inline-block rounded bg-amber-600/70 px-3 py-1 text-white">
                           Pending
                         </span>
                       ) : (
                         <button
-                          className="px-3 py-1 rounded bg-red-600 hover:bg-red-500 disabled:opacity-50"
+                          className="rounded bg-red-600 px-3 py-1 hover:bg-red-500 disabled:opacity-50"
                           disabled={busyNeedId === needId}
                           onClick={() => handleCreateMatch(needId)}
                         >
@@ -325,9 +337,6 @@ export default function MatchesPage() {
             </tbody>
           </table>
         </div>
-
-        {/* Debug hint (optional): shows if API is returning rows without a usable need id) */}
-        {/* <pre className="mt-4 text-xs text-slate-400">{JSON.stringify(rows, null, 2)}</pre> */}
       </div>
     </main>
   );

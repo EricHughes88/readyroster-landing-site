@@ -59,13 +59,13 @@ export async function GET() {
           cn.coach_user_id,
           LOWER(REGEXP_REPLACE(COALESCE(cn.event_name,''),'[^a-z0-9]+','','g')),
           regexp_replace(COALESCE(cn.weight_class,''),'\\s+','','g'),
-          LOWER(REGEXP_REPLACE(COALESCE(cn.age_group,''),'[^a-z0-9]+','','g'))
+          REGEXP_REPLACE(COALESCE(cn.age_group,''),'[^0-9]+','','g')
         )
 
           wi.id AS wrestler_interest_id,
           wi.wrestler_id,
-          a.firstname,
-          a.lastname,
+          w.first_name AS firstname,
+          w.last_name  AS lastname,
 
           cn.id AS coach_need_id,
           cn.coach_user_id,
@@ -100,15 +100,15 @@ export async function GET() {
 
         FROM public.wrestler_interests wi
 
-        INNER JOIN public.athletes a
-          ON a.athleteid = wi.wrestler_id
+        INNER JOIN public.wrestlers w
+          ON w.id = wi.wrestler_id
 
         INNER JOIN public.coach_needs cn
           ON LOWER(REGEXP_REPLACE(COALESCE(wi.event_name,''),'[^a-z0-9]+','','g'))
            = LOWER(REGEXP_REPLACE(COALESCE(cn.event_name,''),'[^a-z0-9]+','','g'))
 
-         AND LOWER(REGEXP_REPLACE(COALESCE(wi.age_group,''),'[^a-z0-9]+','','g'))
-           = LOWER(REGEXP_REPLACE(COALESCE(cn.age_group,''),'[^a-z0-9]+','','g'))
+         AND REGEXP_REPLACE(COALESCE(wi.age_group,''),'[^0-9]+','','g')
+           = REGEXP_REPLACE(COALESCE(cn.age_group,''),'[^0-9]+','','g')
 
          AND EXISTS (
            SELECT 1
@@ -116,7 +116,8 @@ export async function GET() {
              string_to_array(
                regexp_replace(
                  regexp_replace(COALESCE(cn.weight_class,''),'-',',','g'),
-                 '\\s+','',
+                 '\\s+',
+                 '',
                  'g'
                ),
                ','
@@ -146,7 +147,7 @@ export async function GET() {
          AND m.coach_need_id = cn.id
 
         WHERE
-          a.userid = $1
+          w.parent_user_id = $1
           AND m.wrestler_interest_id IS NULL
           AND t.teamname IS NOT NULL
           AND COALESCE(wi.is_visible, TRUE) = TRUE
@@ -164,7 +165,7 @@ export async function GET() {
           cn.coach_user_id,
           LOWER(REGEXP_REPLACE(COALESCE(cn.event_name,''),'[^a-z0-9]+','','g')),
           regexp_replace(COALESCE(cn.weight_class,''),'\\s+','','g'),
-          LOWER(REGEXP_REPLACE(COALESCE(cn.age_group,''),'[^a-z0-9]+','','g')),
+          REGEXP_REPLACE(COALESCE(cn.age_group,''),'[^0-9]+','','g'),
           cn.event_date NULLS LAST,
           cn.id ASC,
           wi.id ASC
@@ -178,8 +179,8 @@ export async function GET() {
           pv.viewer_user_id,
           pv.viewed_at,
           wi.wrestler_id,
-          a.firstname,
-          a.lastname,
+          w.first_name AS firstname,
+          w.last_name  AS lastname,
           t.teamid,
           t.teamname,
           t.coach_name,
@@ -194,8 +195,8 @@ export async function GET() {
         INNER JOIN public.wrestler_interests wi
           ON wi.wrestler_id = pv.target_id
 
-        INNER JOIN public.athletes a
-          ON a.athleteid = wi.wrestler_id
+        INNER JOIN public.wrestlers w
+          ON w.id = wi.wrestler_id
 
         LEFT JOIN LATERAL (
           SELECT
@@ -212,7 +213,7 @@ export async function GET() {
 
         WHERE
           pv.target_type = 'athlete'
-          AND a.userid = $1
+          AND w.parent_user_id = $1
           AND COALESCE(wi.is_visible, TRUE) = TRUE
           AND (
             wi.event_date IS NULL
@@ -269,8 +270,8 @@ export async function GET() {
           ON LOWER(REGEXP_REPLACE(COALESCE(wi.event_name, ''), '[^a-z0-9]+', '', 'g')) =
              LOWER(REGEXP_REPLACE(COALESCE(cn.event_name, ''), '[^a-z0-9]+', '', 'g'))
 
-          AND LOWER(REGEXP_REPLACE(COALESCE(wi.age_group, ''), '[^a-z0-9]+', '', 'g')) =
-              LOWER(REGEXP_REPLACE(COALESCE(cn.age_group, ''), '[^a-z0-9]+', '', 'g'))
+          AND REGEXP_REPLACE(COALESCE(wi.age_group, ''), '[^0-9]+', '', 'g') =
+              REGEXP_REPLACE(COALESCE(cn.age_group, ''), '[^0-9]+', '', 'g')
 
           AND EXISTS (
             SELECT 1
