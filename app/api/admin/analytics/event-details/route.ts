@@ -86,7 +86,31 @@ export async function GET(req: NextRequest) {
       SELECT
         cn.id,
         cn.coach_user_id,
-        t.teamname AS team_name,
+
+        COALESCE(
+          NULLIF(t.teamname, ''),
+          NULLIF(cn.event_name, ''),
+          'No team profile yet'
+        ) AS team_name,
+
+        COALESCE(
+          NULLIF(t.coach_name, ''),
+          'No coach name'
+        ) AS coach_name,
+
+        COALESCE(
+          NULLIF(t.contactemail, ''),
+          'No contact email'
+        ) AS contact_email,
+
+        CASE
+          WHEN COALESCE(NULLIF(t.city, ''), NULLIF(t.state, '')) IS NOT NULL
+            THEN CONCAT_WS(', ', NULLIF(t.city, ''), NULLIF(t.state, ''))
+          WHEN COALESCE(NULLIF(cn.city, ''), NULLIF(cn.state, '')) IS NOT NULL
+            THEN CONCAT_WS(', ', NULLIF(cn.city, ''), NULLIF(cn.state, ''))
+          ELSE 'No location'
+        END AS location,
+
         cn.event_name,
         cn.event_date,
         cn.weight_class,
@@ -98,7 +122,12 @@ export async function GET(req: NextRequest) {
         cn.created_at
       FROM public.coach_needs cn
       LEFT JOIN LATERAL (
-        SELECT teamname
+        SELECT
+          teamname,
+          coach_name,
+          contactemail,
+          city,
+          state
         FROM public.teams
         WHERE userid = cn.coach_user_id
         ORDER BY teamid DESC NULLS LAST

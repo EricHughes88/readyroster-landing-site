@@ -172,6 +172,35 @@ export async function POST(req: Request) {
       );
     }
 
+    const teamCheck = await client.query(
+      `
+      SELECT
+        teamid,
+        userid,
+        teamname,
+        coach_name,
+        contactemail,
+        city,
+        state,
+        logopath
+      FROM public.teams
+      WHERE userid = $1
+      LIMIT 1
+      `,
+      [coachUserId]
+    );
+
+    if (teamCheck.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "You must create your team profile before posting needs.",
+        },
+        { status: 400 }
+      );
+    }
+
     const insertedNeeds: any[] = [];
 
     for (const singleWeightClass of weightClasses) {
@@ -232,6 +261,7 @@ export async function POST(req: Request) {
         count: insertedNeeds.length,
         needs: insertedNeeds,
         coach: coachCheck.rows[0],
+        team: teamCheck.rows[0],
       },
       { status: 201 }
     );
