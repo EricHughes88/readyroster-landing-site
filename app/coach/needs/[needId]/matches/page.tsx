@@ -90,18 +90,23 @@ export default function NeedMatchesPage() {
 
   useEffect(() => {
     if (!needId) return;
+
     (async () => {
       setLoading(true);
       setErr(null);
       setActionMessage(null);
+
       try {
         const res = await fetch(`/api/coach/needs/${needId}/matches`, {
           cache: "no-store",
         });
+
         const data = (await res.json()) as ApiResponse;
+
         if (!res.ok || !data.ok) {
           throw new Error(data?.message || "Failed to load matches");
         }
+
         setNeed(data.need);
         setRows(data.candidates ?? []);
       } catch (e: any) {
@@ -118,7 +123,9 @@ export default function NeedMatchesPage() {
       const res = await fetch(`/api/coach/needs/${needId}/matches`, {
         cache: "no-store",
       });
+
       const data = (await res.json()) as ApiResponse;
+
       if (res.ok && data.ok) {
         setNeed(data.need);
         setRows(data.candidates ?? []);
@@ -130,15 +137,19 @@ export default function NeedMatchesPage() {
 
   const handleSendRequest = async (c: Candidate) => {
     if (!needId) return;
+
     setErr(null);
     setActionMessage(null);
     setSendingForId(c.id);
 
     try {
-      const res = await fetch(`/api/interests/${c.id}/matches`, {
+      const res = await fetch(`/api/matches`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ needId }),
+        body: JSON.stringify({
+          interestId: c.id,
+          needId,
+        }),
       });
 
       const data = await res.json().catch(() => null);
@@ -180,21 +191,25 @@ export default function NeedMatchesPage() {
       if (sortKey === "wrestler") {
         return getWrestlerName(a).localeCompare(getWrestlerName(b)) * dir;
       }
+
       if (sortKey === "event") {
         const ea = (a.event_name ?? "").toLowerCase();
         const eb = (b.event_name ?? "").toLowerCase();
         return ea.localeCompare(eb) * dir;
       }
+
       if (sortKey === "date") {
         const da = a.event_date ? new Date(a.event_date).getTime() : 0;
         const db = b.event_date ? new Date(b.event_date).getTime() : 0;
         return (da - db) * dir;
       }
+
       if (sortKey === "status") {
         const sa = normalizeStatus(a);
         const sb = normalizeStatus(b);
         return sa.localeCompare(sb) * dir;
       }
+
       return 0;
     });
 
@@ -213,21 +228,33 @@ export default function NeedMatchesPage() {
   }, [search, statusFilter, pageSize]);
 
   const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
       setSortKey(key);
       setSortDir("asc");
     }
   };
 
   const handleExportConfirmed = () => {
-    const confirmed = filteredSorted.filter((c) => normalizeStatus(c) === "confirmed");
+    const confirmed = filteredSorted.filter(
+      (c) => normalizeStatus(c) === "confirmed"
+    );
+
     if (!confirmed.length) {
       alert("No confirmed matches to export for this need.");
       return;
     }
 
-    const header = ["Wrestler", "Event", "Date", "Weight", "Age Group", "Status", "Notes"];
+    const header = [
+      "Wrestler",
+      "Event",
+      "Date",
+      "Weight",
+      "Age Group",
+      "Status",
+      "Notes",
+    ];
 
     const lines = confirmed.map((c) => {
       const fields = [
@@ -240,7 +267,9 @@ export default function NeedMatchesPage() {
         (c.notes ?? "").replace(/\r?\n/g, " "),
       ];
 
-      return fields.map((f) => `"${String(f).replace(/"/g, '""')}"`).join(",");
+      return fields
+        .map((f) => `"${String(f).replace(/"/g, '""')}"`)
+        .join(",");
     });
 
     const csv = [header.join(","), ...lines].join("\r\n");
@@ -249,7 +278,11 @@ export default function NeedMatchesPage() {
     const a = document.createElement("a");
     a.href = url;
 
-    const titleParts = [need?.event_name || "need", need?.age_group || "", need?.weight_class || ""]
+    const titleParts = [
+      need?.event_name || "need",
+      need?.age_group || "",
+      need?.weight_class || "",
+    ]
       .join("_")
       .replace(/\s+/g, "-")
       .replace(/[^a-zA-Z0-9_-]/g, "")
@@ -269,30 +302,30 @@ export default function NeedMatchesPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-8">
-        <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold mb-1">Matches for Need</h1>
+            <h1 className="mb-1 text-2xl font-semibold">Matches for Need</h1>
             {headingLine && <p className="text-sm text-slate-300">{headingLine}</p>}
           </div>
 
           <div className="flex flex-wrap gap-2">
             <button
               onClick={handleExportConfirmed}
-              className="px-3 py-1.5 text-xs rounded border border-slate-700 bg-slate-900 hover:bg-slate-800"
+              className="rounded border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs hover:bg-slate-800"
             >
               Export Confirmed CSV
             </button>
 
             <Link
               href="/coach/needs"
-              className="px-3 py-1.5 text-xs rounded bg-slate-800 border border-slate-700 hover:bg-slate-700"
+              className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs hover:bg-slate-700"
             >
               Back to needs
             </Link>
 
             <Link
               href="/coach"
-              className="px-3 py-1.5 text-xs rounded bg-slate-800 border border-slate-700 hover:bg-slate-700"
+              className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs hover:bg-slate-700"
             >
               Back to dashboard
             </Link>
@@ -304,6 +337,7 @@ export default function NeedMatchesPage() {
             {err}
           </div>
         )}
+
         {actionMessage && (
           <div className="mb-4 rounded border border-emerald-600 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
             {actionMessage}
@@ -313,13 +347,15 @@ export default function NeedMatchesPage() {
         <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
           <div className="flex items-center gap-2">
             <span className="text-slate-300">Status</span>
-            <div className="flex rounded border border-slate-700 bg-slate-900 overflow-hidden">
+            <div className="overflow-hidden rounded border border-slate-700 bg-slate-900">
               {(["all", "pending", "confirmed"] as MatchStatus[]).map((s) => (
                 <button
                   key={s}
                   onClick={() => setStatusFilter(s)}
-                  className={`px-2 py-1 text-xs border-r border-slate-700 last:border-r-0 ${
-                    statusFilter === s ? "bg-slate-100 text-slate-900" : "text-slate-200"
+                  className={`border-r border-slate-700 px-2 py-1 text-xs last:border-r-0 ${
+                    statusFilter === s
+                      ? "bg-slate-100 text-slate-900"
+                      : "text-slate-200"
                   }`}
                 >
                   {s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}
@@ -328,7 +364,7 @@ export default function NeedMatchesPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+          <div className="flex min-w-[200px] flex-1 items-center gap-2">
             <span className="text-slate-300">Search</span>
             <input
               value={search}
@@ -353,7 +389,7 @@ export default function NeedMatchesPage() {
             </select>
           </div>
 
-          <div className="text-slate-400 ml-auto">
+          <div className="ml-auto text-slate-400">
             Showing {total === 0 ? 0 : startIndex + 1}–{endIndex} of {total}
           </div>
         </div>
@@ -366,23 +402,23 @@ export default function NeedMatchesPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm border border-slate-800 rounded-lg overflow-hidden">
+            <table className="w-full overflow-hidden rounded-lg border border-slate-800 text-sm">
               <thead className="bg-slate-900/80 text-slate-200">
                 <tr>
                   <th
-                    className="px-3 py-2 text-left cursor-pointer select-none"
+                    className="cursor-pointer select-none px-3 py-2 text-left"
                     onClick={() => toggleSort("wrestler")}
                   >
                     Wrestler {sortKey === "wrestler" && (sortDir === "asc" ? "▲" : "▼")}
                   </th>
                   <th
-                    className="px-3 py-2 text-left cursor-pointer select-none"
+                    className="cursor-pointer select-none px-3 py-2 text-left"
                     onClick={() => toggleSort("event")}
                   >
                     Event {sortKey === "event" && (sortDir === "asc" ? "▲" : "▼")}
                   </th>
                   <th
-                    className="px-3 py-2 text-left cursor-pointer select-none"
+                    className="cursor-pointer select-none px-3 py-2 text-left"
                     onClick={() => toggleSort("date")}
                   >
                     Date {sortKey === "date" && (sortDir === "asc" ? "▲" : "▼")}
@@ -390,7 +426,7 @@ export default function NeedMatchesPage() {
                   <th className="px-3 py-2 text-left">Weight</th>
                   <th className="px-3 py-2 text-left">Age Group</th>
                   <th
-                    className="px-3 py-2 text-left cursor-pointer select-none"
+                    className="cursor-pointer select-none px-3 py-2 text-left"
                     onClick={() => toggleSort("status")}
                   >
                     Status {sortKey === "status" && (sortDir === "asc" ? "▲" : "▼")}
@@ -399,34 +435,39 @@ export default function NeedMatchesPage() {
                   <th className="px-3 py-2 text-left">Actions</th>
                 </tr>
               </thead>
+
               <tbody>
                 {pageRows.map((c) => {
                   const matchId = c.match_id ?? null;
                   const status = normalizeStatus(c);
-                  const canSendRequest = !matchId || c.match_status === null;
+                  const canSendRequest = !matchId;
 
                   const wrestlerIdNum = Number(c.wrestler_id);
-                  const canViewAthlete = Number.isFinite(wrestlerIdNum) && wrestlerIdNum > 0;
+                  const canViewAthlete =
+                    Number.isFinite(wrestlerIdNum) && wrestlerIdNum > 0;
 
                   return (
                     <tr key={c.id} className="border-t border-slate-800">
                       <td className="px-3 py-2">
                         {getWrestlerName(c)}
-                        <div className="text-[11px] text-slate-500">
+                        <div className="mt-1 text-[11px] text-slate-500">
                           ID: {c.wrestler_id ?? "—"}
                         </div>
                       </td>
+
                       <td className="px-3 py-2">{c.event_name ?? "—"}</td>
                       <td className="px-3 py-2">{fmtDate(c.event_date)}</td>
                       <td className="px-3 py-2">{c.weight_class}</td>
                       <td className="px-3 py-2">{c.age_group}</td>
+
                       <td className="px-3 py-2 capitalize">
                         {status}
-                        <div className="text-[11px] text-slate-500 mt-1">
+                        <div className="mt-1 text-[11px] text-slate-500">
                           Parent: {c.parent_ok ? "✓" : "—"} • Coach: {c.coach_ok ? "✓" : "—"}
                         </div>
                       </td>
-                      <td className="px-3 py-2 max-w-xs">
+
+                      <td className="max-w-xs px-3 py-2">
                         <span className="line-clamp-2">{c.notes ?? "—"}</span>
                       </td>
 
@@ -435,14 +476,14 @@ export default function NeedMatchesPage() {
                           <div className="flex flex-wrap gap-2">
                             <Link
                               href={`/matches/${matchId}` as any}
-                              className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs"
+                              className="rounded bg-emerald-600 px-2 py-1 text-xs text-slate-950 hover:bg-emerald-500"
                             >
                               View Match
                             </Link>
 
                             <Link
                               href={`/messages/match/${matchId}` as any}
-                              className="px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs"
+                              className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
                             >
                               Message
                             </Link>
@@ -450,7 +491,7 @@ export default function NeedMatchesPage() {
                             {canViewAthlete && (
                               <Link
                                 href={`/coach/athletes/${wrestlerIdNum}` as any}
-                                className="px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs"
+                                className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs hover:bg-slate-700"
                               >
                                 View Athlete
                               </Link>
@@ -461,7 +502,7 @@ export default function NeedMatchesPage() {
                             {canViewAthlete && (
                               <Link
                                 href={`/coach/athletes/${wrestlerIdNum}` as any}
-                                className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-slate-800 border border-slate-700 text-slate-100 hover:bg-slate-700"
+                                className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-100 hover:bg-slate-700"
                               >
                                 View Athlete
                               </Link>
@@ -473,10 +514,10 @@ export default function NeedMatchesPage() {
                               onClick={() => handleSendRequest(c)}
                               className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
                                 sendingForId === c.id
-                                  ? "bg-slate-700 text-slate-300 cursor-wait"
+                                  ? "cursor-wait bg-slate-700 text-slate-300"
                                   : canSendRequest
                                   ? "bg-red-600 text-slate-950 hover:bg-red-500"
-                                  : "bg-slate-800 text-slate-400 cursor-not-allowed"
+                                  : "cursor-not-allowed bg-slate-800 text-slate-400"
                               }`}
                             >
                               {sendingForId === c.id ? "Sending…" : "Send match request"}
@@ -497,20 +538,26 @@ export default function NeedMatchesPage() {
             <button
               disabled={currentPage <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className={`px-2 py-1 rounded border border-slate-700 bg-slate-900 ${
-                currentPage <= 1 ? "opacity-40 cursor-not-allowed" : "hover:bg-slate-800"
+              className={`rounded border border-slate-700 bg-slate-900 px-2 py-1 ${
+                currentPage <= 1
+                  ? "cursor-not-allowed opacity-40"
+                  : "hover:bg-slate-800"
               }`}
             >
               Prev
             </button>
+
             <span>
               Page {currentPage} of {pageCount}
             </span>
+
             <button
               disabled={currentPage >= pageCount}
               onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-              className={`px-2 py-1 rounded border border-slate-700 bg-slate-900 ${
-                currentPage >= pageCount ? "opacity-40 cursor-not-allowed" : "hover:bg-slate-800"
+              className={`rounded border border-slate-700 bg-slate-900 px-2 py-1 ${
+                currentPage >= pageCount
+                  ? "cursor-not-allowed opacity-40"
+                  : "hover:bg-slate-800"
               }`}
             >
               Next

@@ -45,6 +45,23 @@ function normalize(v: unknown) {
   return String(v ?? "").trim();
 }
 
+function buildFullName(first?: string | null, last?: string | null) {
+  return [normalize(first), normalize(last)].filter(Boolean).join(" ").trim();
+}
+
+function buildRecipientName(c: CandidateRow) {
+  return (
+    buildFullName(c.parent_firstname, c.parent_lastname) ||
+    c.parent_firstname ||
+    c.first_name ||
+    "there"
+  );
+}
+
+function buildAthleteName(c: CandidateRow) {
+  return buildFullName(c.first_name, c.last_name) || "your athlete";
+}
+
 function daysUntil(dateStr?: string | null) {
   if (!dateStr) return null;
 
@@ -62,6 +79,21 @@ function getWave(daysOut: number | null): "state" | "national" | null {
   if (daysOut < 0) return null;
   if (daysOut > 21) return "state";
   return "national";
+}
+
+function getWaveLabel(wave: "state" | "national") {
+  return wave === "state" ? "State Match Window" : "National Match Window";
+}
+
+function getAppBaseUrl() {
+  return process.env.APP_BASE_URL || "http://localhost:3000";
+}
+
+function buildMatchUrl(c: CandidateRow) {
+  if (c.athlete_id) {
+    return `${getAppBaseUrl()}/parent/wrestlers/${c.athlete_id}/matches`;
+  }
+  return `${getAppBaseUrl()}/parent`;
 }
 
 async function getOpenCoachNeeds(): Promise<CoachNeedRow[]> {
@@ -212,6 +244,7 @@ export async function runRecruitingAlerts(): Promise<RecruitingAlertRunResult> {
     const eventName = normalize(need.event_name);
     const weightClass = normalize(need.weight_class);
     const ageGroup = normalize(need.age_group);
+    const eventState = normalize(need.state) || null;
 
     if (!eventName || !weightClass || !ageGroup) continue;
 
@@ -239,16 +272,23 @@ export async function runRecruitingAlerts(): Promise<RecruitingAlertRunResult> {
         continue;
       }
 
+      const recipientName = buildRecipientName(c);
+      const athleteName = buildAthleteName(c);
+      const waveLabel = getWaveLabel(wave);
+      const matchUrl = buildMatchUrl(c);
+
       const emailResult = await sendRecruitingAlertEmail({
         to: c.email,
+        recipientName,
+        athleteName,
         eventName,
         eventDate: need.event_date,
+        eventState,
         weightClass,
         ageGroup,
-        recipientName:
-          c.parent_firstname ??
-          c.first_name ??
-          "there",
+        wave,
+        waveLabel,
+        matchUrl,
       });
 
       if (!emailResult.ok) {

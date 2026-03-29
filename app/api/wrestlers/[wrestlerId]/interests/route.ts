@@ -1,9 +1,10 @@
-// app/api/wrestlers/[wrestlerId]/interests/route.ts
 import { NextResponse } from "next/server";
 import pg from "pg";
 import { z } from "zod";
 import { notifyMatchesForInterest } from "@/lib/matchEngine";
 import { notifyAthleteFollowersOnNewInterest } from "@/lib/notifyAthleteFollowers";
+import { splitWeightClasses } from "@/lib/normalization";
+import { normalizeAgeGroup } from "@/lib/normalizeAgeGroup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ function haversineMiles(
   lat2: number,
   lon2: number
 ) {
-  const R = 3958.8; // Earth radius in miles
+  const R = 3958.8;
   const dLat = toRadians(lat2 - lat1);
   const dLon = toRadians(lon2 - lon1);
 
@@ -264,6 +265,30 @@ export async function POST(
       notes,
     } = parsed.data;
 
+    const normalizedAgeGroup = normalizeAgeGroup(ageGroup);
+
+    if (!normalizedAgeGroup) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Age group is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    const weightClasses = splitWeightClasses(weightClass);
+
+    if (weightClasses.length === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "At least one weight class is required",
+        },
+        { status: 400 }
+      );
+    }
+
     const client = await pool.connect();
     try {
       const wrestlerCheck = await client.query<{
@@ -326,64 +351,76 @@ export async function POST(
         }
       }
 
-      const r = await client.query<{ id: number }>(
-        `
-        INSERT INTO public.wrestler_interests
-          (
-            wrestler_id,
-            event_name,
-            event_date,
-            weight_class,
-            age_group,
-            notes,
-            event_city,
-            event_state,
-            travel_miles,
-            is_visible
-          )
-        VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, TRUE)
-        RETURNING id
-        `,
-        [
-          wid,
-          eventName,
-          eventDate || null,
-          weightClass,
-          ageGroup,
-          notes || null,
-          eventCity,
-          eventState,
-          travelMiles,
-        ]
-      );
+      const insertedInterests: Array<{ id: number }> = [];
 
-      const interestId = Number(r.rows[0]?.id);
+      for (const singleWeightClass of weightClasses) {
+        const r = await client.query<{ id: number }>(
+          `
+          INSERT INTO public.wrestler_interests
+            (
+              wrestler_id,
+              event_name,
+              event_date,
+              weight_class,
+              age_group,
+              notes,
+              event_city,
+              event_state,
+              travel_miles,
+              is_visible
+            )
+          VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, TRUE)
+          RETURNING id
+          `,
+          [
+            wid,
+            eventName,
+            eventDate || null,
+            singleWeightClass,
+            normalizedAgeGroup,
+            notes || null,
+            eventCity,
+            eventState,
+            travelMiles,
+          ]
+        );
 
-      if (Number.isFinite(interestId) && interestId > 0) {
+        if (r.rows[0]?.id) {
+          insertedInterests.push(r.rows[0]);
+        }
+      }
+
+      for (const insertedInterest of insertedInterests) {
+        const interestId = Number(insertedInterest.id);
+
+        if (!Number.isFinite(interestId) || interestId <= 0) continue;
+
         try {
           await notifyMatchesForInterest(interestId);
         } catch (matchErr) {
           console.error("notifyMatchesForInterest failed:", matchErr);
         }
+      }
 
-        try {
-          await notifyAthleteFollowersOnNewInterest({
-            wrestlerId: wid,
-            athleteName: wrestlerName,
-            eventName,
-            eventDate: eventDate || null,
-            weightClass: weightClass || null,
-            ageGroup: ageGroup || null,
-          });
-        } catch (notifyErr) {
-          console.error("[notifyAthleteFollowers] failed", notifyErr);
-        }
+      try {
+        await notifyAthleteFollowersOnNewInterest({
+          wrestlerId: wid,
+          athleteName: wrestlerName,
+          eventName,
+          eventDate: eventDate || null,
+          weightClass: weightClass || null,
+          ageGroup: ageGroup || null,
+        });
+      } catch (notifyErr) {
+        console.error("[notifyAthleteFollowers] failed", notifyErr);
       }
 
       return NextResponse.json(
         {
           ok: true,
-          id: interestId,
+          id: insertedInterests[0]?.id ?? null,
+          ids: insertedInterests.map((i) => i.id),
+          count: insertedInterests.length,
           wrestler,
           travel_miles: travelMiles,
         },

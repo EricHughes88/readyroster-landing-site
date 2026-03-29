@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Pool } from "pg";
+import type { PoolClient } from "pg";
 import { notifyMatchesForCoachNeed } from "@/lib/matchNotifications";
 import { notifyCoachFollowersOnNeedPosted } from "@/lib/notifyCoachFollowers";
+import { splitWeightClasses } from "@/lib/normalization";
+import { normalizeAgeGroup } from "@/lib/normalizeAgeGroup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +24,10 @@ const NewNeedSchema = z.object({
   state: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
+
+function normalizeText(value: string | null | undefined) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -88,6 +95,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: Request) {
+  let client: PoolClient | undefined;
+
   try {
     const body = await req.json().catch(() => null);
     const parsed = NewNeedSchema.safeParse(body);
@@ -114,29 +123,58 @@ export async function POST(req: Request) {
       notes,
     } = parsed.data;
 
-    const client = await pool.connect();
+    const normalizedEventName = normalizeText(event_name);
+    const normalizedAgeGroup = normalizeAgeGroup(age_group);
+    const normalizedCity = normalizeText(city ?? "");
+    const normalizedState = normalizeText(state ?? "");
+    const normalizedNotes = normalizeText(notes ?? "");
 
-    try {
-      const coachCheck = await client.query(
-        `
-        SELECT id, firstname, lastname, email
-        FROM public.users
-        WHERE id = $1
-        LIMIT 1
-        `,
-        [coachUserId]
+    if (!normalizedAgeGroup) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Age group is required",
+        },
+        { status: 400 }
       );
+    }
 
-      if (coachCheck.rows.length === 0) {
-        return NextResponse.json(
-          {
-            ok: false,
-            message: "Invalid coachUserId",
-          },
-          { status: 400 }
-        );
-      }
+    const weightClasses = splitWeightClasses(weight_class);
 
+    if (weightClasses.length === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "At least one weight class is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    client = await pool.connect();
+    await client.query("BEGIN");
+
+    const coachCheck = await client.query(
+      `
+      SELECT id, firstname, lastname, email
+      FROM public.users
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [coachUserId]
+    );
+
+    if (coachCheck.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return NextResponse.json(
+        { ok: false, message: "Invalid coachUserId" },
+        { status: 400 }
+      );
+    }
+
+    const insertedNeeds: any[] = [];
+
+    for (const singleWeightClass of weightClasses) {
       const result = await client.query(
         `
         INSERT INTO public.coach_needs
@@ -152,86 +190,63 @@ export async function POST(req: Request) {
           is_visible
         )
         VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, TRUE)
-        RETURNING
-          id,
-          coach_user_id,
-          event_name,
-          event_date,
-          weight_class,
-          age_group,
-          city,
-          state,
-          notes,
-          is_open,
-          is_visible,
-          created_at,
-          CASE
-            WHEN COALESCE(is_open, TRUE) = FALSE THEN 'closed'
-            ELSE 'open'
-          END AS status
+        RETURNING *
         `,
         [
           coachUserId,
-          event_name,
+          normalizedEventName,
           event_date || null,
-          weight_class,
-          age_group,
-          city || null,
-          state || null,
-          notes || null,
+          singleWeightClass,
+          normalizedAgeGroup,
+          normalizedCity || null,
+          normalizedState || null,
+          normalizedNotes || null,
         ]
       );
 
-      const insertedNeed = result.rows[0];
+      insertedNeeds.push(result.rows[0]);
+    }
+
+    await client.query("COMMIT");
+
+    for (const insertedNeed of insertedNeeds) {
       const coachNeedId = Number(insertedNeed?.id);
 
-      if (Number.isFinite(coachNeedId) && coachNeedId > 0) {
-        try {
-          await notifyMatchesForCoachNeed(coachNeedId);
-        } catch (matchNotifyError) {
-          console.error(
-            "coach need created, but match notification logic failed:",
-            matchNotifyError
-          );
-        }
+      if (!Number.isFinite(coachNeedId) || coachNeedId <= 0) continue;
 
-        try {
-          await notifyCoachFollowersOnNeedPosted({
-            coachUserId,
-            coachNeedId,
-            eventName: insertedNeed?.event_name ?? null,
-            ageGroup: insertedNeed?.age_group ?? null,
-            weightClass: insertedNeed?.weight_class ?? null,
-          });
-        } catch (followerNotifyError) {
-          console.error(
-            "coach need created, but follower notifications failed:",
-            followerNotifyError
-          );
-        }
-      }
+      await notifyMatchesForCoachNeed(coachNeedId).catch(console.error);
 
-      return NextResponse.json(
-        {
-          ok: true,
-          id: coachNeedId,
-          need: insertedNeed,
-          coach: coachCheck.rows[0],
-        },
-        { status: 201 }
-      );
-    } finally {
-      client.release();
+      await notifyCoachFollowersOnNeedPosted({
+        coachUserId,
+        coachNeedId,
+        eventName: insertedNeed?.event_name ?? null,
+        ageGroup: insertedNeed?.age_group ?? null,
+        weightClass: insertedNeed?.weight_class ?? null,
+      }).catch(console.error);
     }
-  } catch (e) {
-    console.error("coach need POST error:", e);
 
     return NextResponse.json(
       {
-        ok: false,
-        message: "Server error",
+        ok: true,
+        ids: insertedNeeds.map((n) => n.id),
+        count: insertedNeeds.length,
+        needs: insertedNeeds,
+        coach: coachCheck.rows[0],
       },
+      { status: 201 }
+    );
+  } catch (e) {
+    if (client) {
+      await client.query("ROLLBACK").catch(() => {});
+    }
+
+    console.error("coach need POST error:", e);
+
+    return NextResponse.json(
+      { ok: false, message: "Server error" },
       { status: 500 }
     );
+  } finally {
+    if (client) client.release();
   }
 }
