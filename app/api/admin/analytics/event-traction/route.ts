@@ -56,7 +56,6 @@ async function requireAdminOrSuper() {
 
 export async function GET(req: NextRequest) {
   try {
-    // ✅ AUTH GATE
     const gate = await requireAdminOrSuper();
     if (!gate.ok) return jsonError(gate.message, gate.status);
 
@@ -64,10 +63,6 @@ export async function GET(req: NextRequest) {
     const days = clampDays(url.searchParams.get("days"));
     const limit = clampLimit(url.searchParams.get("limit"));
 
-    // Notes:
-    // - coach_needs: demand
-    // - wrestler_interests: supply
-    // - supply_gap: needs - unique_athletes (simple heuristic)
     const sql = `
       WITH params AS (
         SELECT
@@ -75,31 +70,77 @@ export async function GET(req: NextRequest) {
           (NOW() - (($1::int || ' days')::interval)) AS start_ts
       ),
 
-      needs AS (
+      normalized_needs AS (
         SELECT
-          cn.event_name,
-          COUNT(*)::int AS coach_needs,
-          COUNT(DISTINCT cn.coach_user_id)::int AS unique_coaches
+          TRIM(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                LOWER(COALESCE(cn.event_name, '')),
+                '[^a-z0-9\\s]+',
+                '',
+                'g'
+              ),
+              '\\s+',
+              ' ',
+              'g'
+            )
+          ) AS event_key,
+          TRIM(cn.event_name) AS event_name,
+          cn.coach_user_id
         FROM public.coach_needs cn
         JOIN params p ON true
         WHERE cn.created_at >= p.start_ts
           AND cn.event_name IS NOT NULL
           AND TRIM(cn.event_name) <> ''
-        GROUP BY cn.event_name
+          AND COALESCE(cn.is_visible, TRUE) = TRUE
+          AND COALESCE(cn.weight_class, '') NOT LIKE '%,%'
       ),
 
-      interests AS (
+      needs AS (
         SELECT
-          wi.event_name,
-          COUNT(*)::int AS athlete_interest,
-          COUNT(DISTINCT wi.wrestler_id)::int AS unique_athletes
+          event_key,
+          MIN(event_name) AS event_name,
+          COUNT(*)::int AS coach_needs,
+          COUNT(DISTINCT coach_user_id)::int AS unique_coaches
+        FROM normalized_needs
+        WHERE event_key <> ''
+        GROUP BY event_key
+      ),
+
+      normalized_interests AS (
+        SELECT
+          TRIM(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                LOWER(COALESCE(wi.event_name, '')),
+                '[^a-z0-9\\s]+',
+                '',
+                'g'
+              ),
+              '\\s+',
+              ' ',
+              'g'
+            )
+          ) AS event_key,
+          TRIM(wi.event_name) AS event_name,
+          wi.wrestler_id
         FROM public.wrestler_interests wi
         JOIN params p ON true
         WHERE wi.created_at >= p.start_ts
           AND wi.event_name IS NOT NULL
           AND TRIM(wi.event_name) <> ''
           AND wi.wrestler_id IS NOT NULL
-        GROUP BY wi.event_name
+      ),
+
+      interests AS (
+        SELECT
+          event_key,
+          MIN(event_name) AS event_name,
+          COUNT(*)::int AS athlete_interest,
+          COUNT(DISTINCT wrestler_id)::int AS unique_athletes
+        FROM normalized_interests
+        WHERE event_key <> ''
+        GROUP BY event_key
       )
 
       SELECT
@@ -111,11 +152,12 @@ export async function GET(req: NextRequest) {
         (COALESCE(n.coach_needs, 0) - COALESCE(i.unique_athletes, 0))::int AS supply_gap
       FROM needs n
       FULL OUTER JOIN interests i
-        ON i.event_name = n.event_name
-      ORDER BY (COALESCE(n.coach_needs,0) + COALESCE(i.athlete_interest,0)) DESC,
-               COALESCE(n.coach_needs,0) DESC,
-               COALESCE(i.athlete_interest,0) DESC,
-               event_name ASC
+        ON i.event_key = n.event_key
+      ORDER BY
+        (COALESCE(n.coach_needs, 0) + COALESCE(i.athlete_interest, 0)) DESC,
+        COALESCE(n.coach_needs, 0) DESC,
+        COALESCE(i.athlete_interest, 0) DESC,
+        COALESCE(n.event_name, i.event_name) ASC
       LIMIT $2;
     `;
 
