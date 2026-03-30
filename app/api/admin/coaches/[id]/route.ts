@@ -36,11 +36,37 @@ function getIp(req: NextRequest): string | null {
   return req.headers.get("x-real-ip") || null;
 }
 
+function clean(value: unknown): string | null {
+  const s = String(value ?? "").trim();
+  return s.length ? s : null;
+}
+
+async function requireAdmin() {
+  const session = (await getServerSession(authConfig as any)) as any;
+
+  if (!session?.user) return null;
+
+  const email = String(session.user?.email ?? "").toLowerCase();
+  const role = String(session.user?.role ?? "").toLowerCase();
+
+  const superEmails = String(process.env.SUPER_ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  const allowed =
+    role === "admin" || role === "super_admin" || superEmails.includes(email);
+
+  if (!allowed) return null;
+
+  return session;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const session = (await getServerSession(authConfig as any)) as any;
+  const session = await requireAdmin();
 
   if (!session?.user) {
     return jsonError("Not signed in", 401);
@@ -91,6 +117,7 @@ export async function GET(
       `
       SELECT
         cn.id,
+        cn.coach_user_id,
         cn.event_name,
         cn.event_date,
         cn.age_group,
@@ -178,11 +205,168 @@ export async function GET(
       ok: true,
       coachId,
       coach,
+      user: {
+        id: coach.id,
+        firstname: coach.firstname ?? null,
+        lastname: coach.lastname ?? null,
+        email: coach.email ?? null,
+        phone: coach.phone ?? null,
+        created_at: coach.created_at ?? null,
+      },
+      team: {
+        teamid: coach.teamid ?? null,
+        userid: coach.id,
+        teamname: coach.teamname ?? null,
+        coach_name: coach.coach_name ?? null,
+        contactemail: coach.contactemail ?? null,
+        logopath: coach.logopath ?? null,
+        city: coach.city ?? null,
+        state: coach.state ?? null,
+      },
       needs: Array.isArray(needsRes.rows) ? needsRes.rows : [],
       matches,
     });
   } catch (e: any) {
-    console.error("[admin/coaches/[id]] error:", e);
+    console.error("[admin/coaches/[id]] GET error:", e);
+    return jsonError("Server error", 500, e?.message ?? String(e));
+  }
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const session = await requireAdmin();
+
+  if (!session?.user) {
+    return jsonError("Not signed in", 401);
+  }
+
+  const adminUserId = Number(session.user?.id ?? 0);
+  const coachId = Number(params?.id ?? 0);
+
+  if (!Number.isFinite(coachId) || coachId <= 0) {
+    return jsonError("Invalid coach id", 400);
+  }
+
+  const pool = getPool();
+
+  try {
+    const body = await req.json().catch(() => null);
+
+    const teamname = clean(body?.teamname);
+    const coachNameInput = clean(body?.coach_name);
+    const contactEmailInput = clean(body?.contactemail);
+    const city = clean(body?.city);
+    const state = clean(body?.state);
+    const logopath = clean(body?.logopath);
+
+    const userRes = await pool.query(
+      `
+      SELECT
+        id,
+        firstname,
+        lastname,
+        email
+      FROM public.users
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [coachId]
+    );
+
+    if ((userRes.rowCount ?? 0) === 0) {
+      return jsonError("Coach not found", 404);
+    }
+
+    const user = userRes.rows[0];
+    const fallbackCoachName = [user.firstname, user.lastname]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const finalCoachName = coachNameInput || fallbackCoachName || "Coach";
+    const finalContactEmail = contactEmailInput || clean(user.email);
+
+    const upsertRes = await pool.query(
+      `
+      INSERT INTO public.teams (
+        userid,
+        teamname,
+        coach_name,
+        contactemail,
+        city,
+        state,
+        logopath
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (userid)
+      DO UPDATE SET
+        teamname = EXCLUDED.teamname,
+        coach_name = EXCLUDED.coach_name,
+        contactemail = EXCLUDED.contactemail,
+        city = EXCLUDED.city,
+        state = EXCLUDED.state,
+        logopath = EXCLUDED.logopath
+      RETURNING
+        teamid,
+        userid,
+        teamname,
+        coach_name,
+        contactemail,
+        city,
+        state,
+        logopath
+      `,
+      [
+        coachId,
+        teamname,
+        finalCoachName,
+        finalContactEmail,
+        city,
+        state,
+        logopath,
+      ]
+    );
+
+    const team = upsertRes.rows?.[0] ?? null;
+
+    if (Number.isFinite(adminUserId) && adminUserId > 0) {
+      try {
+        await logAdminEvent({
+          adminUserId,
+          action: "update_admin_coach_team_profile",
+          entityType: "coach",
+          entityId: coachId,
+          metadata: {
+            teamid: team?.teamid ?? null,
+            teamname: team?.teamname ?? null,
+            coach_name: team?.coach_name ?? null,
+            contactemail: team?.contactemail ?? null,
+            city: team?.city ?? null,
+            state: team?.state ?? null,
+            logopath: team?.logopath ?? null,
+          },
+          ip: getIp(req),
+          userAgent: req.headers.get("user-agent"),
+        });
+      } catch {
+        // ignore audit logging issues
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      coachId,
+      user: {
+        id: user.id,
+        firstname: user.firstname ?? null,
+        lastname: user.lastname ?? null,
+        email: user.email ?? null,
+      },
+      team,
+    });
+  } catch (e: any) {
+    console.error("[admin/coaches/[id]] PATCH error:", e);
     return jsonError("Server error", 500, e?.message ?? String(e));
   }
 }

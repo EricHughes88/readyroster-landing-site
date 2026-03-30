@@ -1,4 +1,4 @@
-// app/admin/coaches/[id]/page.tsx
+// app/admin/(protected)/coaches/[id]/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -157,10 +157,26 @@ function EmptyState({
       }}
     >
       <div style={{ color: "#fff", fontWeight: 800 }}>{title}</div>
-      <div style={{ color: "#94a3b8", marginTop: 6, fontSize: 14 }}>{description}</div>
+      <div style={{ color: "#94a3b8", marginTop: 6, fontSize: 14 }}>
+        {description}
+      </div>
     </div>
   );
 }
+
+const actionButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  border: "1px solid #334155",
+  background: "#0b1220",
+  color: "#fff",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
 
 export default function AdminCoachProfilePage() {
   const params = useParams();
@@ -335,7 +351,14 @@ export default function AdminCoachProfilePage() {
 
   if (loading) {
     return (
-      <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto", color: "#e5e7eb" }}>
+      <main
+        style={{
+          padding: 20,
+          maxWidth: 1100,
+          margin: "0 auto",
+          color: "#e5e7eb",
+        }}
+      >
         <p>Loading coach profile...</p>
       </main>
     );
@@ -343,14 +366,35 @@ export default function AdminCoachProfilePage() {
 
   if (error) {
     return (
-      <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto", color: "#e5e7eb" }}>
-        <div style={{ marginBottom: 16 }}>
-          <Link
-            href={"/admin/coaches" as Route}
-            style={{ color: "#cbd5e1", textDecoration: "underline" }}
-          >
+      <main
+        style={{
+          padding: 20,
+          maxWidth: 1100,
+          margin: "0 auto",
+          color: "#e5e7eb",
+        }}
+      >
+        <div
+          style={{
+            marginBottom: 16,
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <Link href={"/admin/coaches" as Route} style={actionButtonStyle}>
             ← Back to directory
           </Link>
+
+          {Number.isFinite(coachId) && coachId > 0 ? (
+            <Link
+              href={`/admin/coaches/${coachId}/edit` as Route}
+              style={actionButtonStyle}
+            >
+              ✏️ Edit Coach
+            </Link>
+          ) : null}
         </div>
 
         <div
@@ -363,7 +407,9 @@ export default function AdminCoachProfilePage() {
             color: "#fff",
           }}
         >
-          <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>Coach Profile</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 900, margin: 0 }}>
+            Coach Profile
+          </h1>
           <p style={{ marginTop: 12 }}>{error}</p>
         </div>
       </main>
@@ -371,8 +417,18 @@ export default function AdminCoachProfilePage() {
   }
 
   return (
-    <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto", color: "#e5e7eb" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+    <main
+      style={{ padding: 20, maxWidth: 1100, margin: "0 auto", color: "#e5e7eb" }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
         <div>
           <h1 style={{ fontSize: 32, fontWeight: 900, margin: 0, color: "#fff" }}>
             Coach Profile
@@ -382,12 +438,18 @@ export default function AdminCoachProfilePage() {
           </p>
         </div>
 
-        <Link
-          href={"/admin/coaches" as Route}
-          style={{ color: "#cbd5e1", textDecoration: "underline" }}
-        >
-          ← Back to directory
-        </Link>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Link
+            href={`/admin/coaches/${coachId}/edit` as Route}
+            style={actionButtonStyle}
+          >
+            ✏️ Edit Coach
+          </Link>
+
+          <Link href={"/admin/coaches" as Route} style={actionButtonStyle}>
+            ← Back to directory
+          </Link>
+        </div>
       </div>
 
       <div
@@ -410,7 +472,9 @@ export default function AdminCoachProfilePage() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div>
               <div style={{ color: "#94a3b8", fontSize: 12 }}>Coach</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>{coachName}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#fff" }}>
+                {coachName}
+              </div>
 
               <div style={{ marginTop: 12 }}>
                 <div style={{ color: "#94a3b8", fontSize: 12 }}>Email</div>
@@ -463,7 +527,9 @@ export default function AdminCoachProfilePage() {
             </div>
 
             <div>
-              <div style={{ color: "#94a3b8", fontSize: 12 }}>Team Contact Email</div>
+              <div style={{ color: "#94a3b8", fontSize: 12 }}>
+                Team Contact Email
+              </div>
               <div style={{ color: "#fff" }}>
                 {contactEmail !== "—" ? (
                   <a
@@ -547,7 +613,14 @@ export default function AdminCoachProfilePage() {
               }}
             >
               <div style={{ color: "#94a3b8", fontSize: 12 }}>Total Views</div>
-              <div style={{ color: "#fff", fontSize: 28, fontWeight: 900, marginTop: 4 }}>
+              <div
+                style={{
+                  color: "#fff",
+                  fontSize: 28,
+                  fontWeight: 900,
+                  marginTop: 4,
+                }}
+              >
                 {viewStats.totalViews}
               </div>
             </div>
@@ -561,7 +634,14 @@ export default function AdminCoachProfilePage() {
               }}
             >
               <div style={{ color: "#94a3b8", fontSize: 12 }}>Last 7 Days</div>
-              <div style={{ color: "#fff", fontSize: 28, fontWeight: 900, marginTop: 4 }}>
+              <div
+                style={{
+                  color: "#fff",
+                  fontSize: 28,
+                  fontWeight: 900,
+                  marginTop: 4,
+                }}
+              >
                 {viewStats.viewsLast7Days}
               </div>
             </div>
@@ -628,8 +708,13 @@ export default function AdminCoachProfilePage() {
             />
           ) : (
             needs.map((n) => (
-              <div key={n.id} style={{ padding: "10px 0", borderTop: "1px solid #334155" }}>
-                <div style={{ fontWeight: 800, color: "#fff" }}>{n.event_name ?? "—"}</div>
+              <div
+                key={n.id}
+                style={{ padding: "10px 0", borderTop: "1px solid #334155" }}
+              >
+                <div style={{ fontWeight: 800, color: "#fff" }}>
+                  {n.event_name ?? "—"}
+                </div>
 
                 <div style={{ color: "#cbd5e1", marginTop: 2, fontSize: 13 }}>
                   Age: {n.age_group ?? "—"} | Weight: {n.weight_class ?? "—"}
@@ -685,7 +770,10 @@ export default function AdminCoachProfilePage() {
             />
           ) : (
             matches.map((m) => (
-              <div key={m.id} style={{ padding: "10px 0", borderTop: "1px solid #334155" }}>
+              <div
+                key={m.id}
+                style={{ padding: "10px 0", borderTop: "1px solid #334155" }}
+              >
                 <div style={{ fontWeight: 800 }}>
                   {m.athlete_id ? (
                     <Link
@@ -695,7 +783,9 @@ export default function AdminCoachProfilePage() {
                       {m.athlete_name ?? "Unknown Athlete"}
                     </Link>
                   ) : (
-                    <span style={{ color: "#fff" }}>{m.athlete_name ?? "Unknown Athlete"}</span>
+                    <span style={{ color: "#fff" }}>
+                      {m.athlete_name ?? "Unknown Athlete"}
+                    </span>
                   )}
                 </div>
 
