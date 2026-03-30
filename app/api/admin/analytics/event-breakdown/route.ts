@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 
     const eventKeyRaw =
       (url.searchParams.get("event_key") || "").trim() ||
-      (url.searchParams.get("event") || "").trim(); // legacy support
+      (url.searchParams.get("event") || "").trim();
 
     const event_key = normalizeKeyFromQuery(eventKeyRaw);
     if (!event_key) return jsonError("Missing event_key", 400);
@@ -51,36 +51,32 @@ export async function GET(req: NextRequest) {
     const hasState = Boolean(stateRaw);
     const state = stateRaw.toUpperCase();
 
-    // params:
-    // $1 = event_key
-    // $2 = state (optional)
     const params: any[] = [event_key];
     if (hasState) params.push(state);
 
-    // NOTE:
-    // - coach_needs join to teams uses teams.userid = coach_user_id (matches your event-details query)
-    // - wrestler_interests join to wrestlers uses wrestlers.id = wrestler_id (matches your event-details query)
     const q = `
       WITH
       needs AS (
         SELECT
-          NULLIF(TRIM(cn.age_group), '')    AS age_group,
+          NULLIF(TRIM(cn.age_group), '') AS age_group,
           NULLIF(TRIM(cn.weight_class), '') AS weight_class,
-          COUNT(*)::int                      AS needs
+          COUNT(*)::int AS needs
         FROM public.coach_needs cn
         ${hasState ? `
         LEFT JOIN public.teams t
           ON t.userid = cn.coach_user_id
         ` : ``}
         WHERE ${EVENT_KEY_SQL("cn.event_name")} = $1
+          AND COALESCE(cn.is_visible, TRUE) = TRUE
+          AND COALESCE(cn.weight_class, '') NOT LIKE '%,%'
         ${hasState ? `AND t.state = $2` : ``}
         GROUP BY 1, 2
       ),
       interests AS (
         SELECT
-          NULLIF(TRIM(wi.age_group), '')    AS age_group,
+          NULLIF(TRIM(wi.age_group), '') AS age_group,
           NULLIF(TRIM(wi.weight_class), '') AS weight_class,
-          COUNT(*)::int                      AS interests
+          COUNT(*)::int AS interests
         FROM public.wrestler_interests wi
         INNER JOIN public.wrestlers w
           ON w.id = wi.wrestler_id
@@ -91,10 +87,10 @@ export async function GET(req: NextRequest) {
       ),
       merged AS (
         SELECT
-          COALESCE(n.age_group, i.age_group)     AS age_group,
+          COALESCE(n.age_group, i.age_group) AS age_group,
           COALESCE(n.weight_class, i.weight_class) AS weight_class,
-          COALESCE(n.needs, 0)::int              AS needs,
-          COALESCE(i.interests, 0)::int          AS interests,
+          COALESCE(n.needs, 0)::int AS needs,
+          COALESCE(i.interests, 0)::int AS interests,
           (COALESCE(n.needs, 0) - COALESCE(i.interests, 0))::int AS gap
         FROM needs n
         FULL OUTER JOIN interests i
@@ -121,7 +117,6 @@ export async function GET(req: NextRequest) {
     const res = await pool.query(q, params);
     const rows = Array.isArray(res.rows) ? res.rows : [];
 
-    // Also return separate lists (handy for UI without extra work)
     const needs_by_bucket = rows
       .filter((r) => Number(r.needs) > 0)
       .map((r) => ({

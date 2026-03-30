@@ -104,11 +104,13 @@ async function getCoachNeeds(
       cn.age_group,
       t.teamname AS team_name,
       t.coach_name,
-      t.contactemail AS contact_email,
+      COALESCE(t.contactemail, u.email) AS contact_email,
       COALESCE(cn.city, t.city) AS city,
       COALESCE(cn.state, t.state) AS state,
       cn.created_at
     FROM public.coach_needs cn
+    LEFT JOIN public.users u
+      ON u.id = cn.coach_user_id
     LEFT JOIN LATERAL (
       SELECT
         teamname,
@@ -122,6 +124,8 @@ async function getCoachNeeds(
       LIMIT 1
     ) t ON true
     WHERE ${eventWhereSql("cn.event_name")}
+      AND COALESCE(cn.is_visible, TRUE) = TRUE
+      AND COALESCE(cn.weight_class, '') NOT LIKE '%,%'
     ORDER BY cn.created_at DESC NULLS LAST, cn.id DESC
   `;
 

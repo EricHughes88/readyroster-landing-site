@@ -49,16 +49,12 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
-    // preferred param
     const eventKeyRaw = (url.searchParams.get("event_key") || "").trim();
-
-    // legacy param support
     const eventLegacy = (url.searchParams.get("event") || "").trim();
 
     const event_key = normalizeKeyFromQuery(eventKeyRaw || eventLegacy);
     if (!event_key) return jsonError("Missing event_key", 400);
 
-    // nice display name for page header
     const nameRes = await pool.query(
       `
       WITH
@@ -95,11 +91,22 @@ export async function GET(req: NextRequest) {
 
         COALESCE(
           NULLIF(t.coach_name, ''),
+          NULLIF(
+            TRIM(
+              CONCAT(
+                COALESCE(u.firstname, ''),
+                ' ',
+                COALESCE(u.lastname, '')
+              )
+            ),
+            ''
+          ),
           'No coach name'
         ) AS coach_name,
 
         COALESCE(
           NULLIF(t.contactemail, ''),
+          NULLIF(u.email, ''),
           'No contact email'
         ) AS contact_email,
 
@@ -121,6 +128,8 @@ export async function GET(req: NextRequest) {
         cn.is_open,
         cn.created_at
       FROM public.coach_needs cn
+      LEFT JOIN public.users u
+        ON u.id = cn.coach_user_id
       LEFT JOIN LATERAL (
         SELECT
           teamname,
@@ -134,6 +143,8 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       ) t ON true
       WHERE ${EVENT_KEY_SQL("cn.event_name")} = $1
+        AND COALESCE(cn.is_visible, TRUE) = TRUE
+        AND COALESCE(cn.weight_class, '') NOT LIKE '%,%'
       ORDER BY cn.created_at DESC
       `,
       [event_key]
