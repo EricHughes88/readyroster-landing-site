@@ -5,6 +5,7 @@ import { notifyMatchesForInterest } from "@/lib/matchEngine";
 import { notifyAthleteFollowersOnNewInterest } from "@/lib/notifyAthleteFollowers";
 import { splitWeightClasses } from "@/lib/normalization";
 import { normalizeAgeGroup } from "@/lib/normalizeAgeGroup";
+import { normalizeEventName } from "@/lib/normalizeEventName";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -265,7 +266,18 @@ export async function POST(
       notes,
     } = parsed.data;
 
+    const normalizedEventName = normalizeEventName(eventName);
     const normalizedAgeGroup = normalizeAgeGroup(ageGroup);
+
+    if (!normalizedEventName) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Event name is required",
+        },
+        { status: 400 }
+      );
+    }
 
     if (!normalizedAgeGroup) {
       return NextResponse.json(
@@ -374,7 +386,7 @@ export async function POST(
           `,
           [
             wid,
-            eventName,
+            normalizedEventName,
             eventDate || null,
             singleWeightClass,
             normalizedAgeGroup,
@@ -406,7 +418,7 @@ export async function POST(
         await notifyAthleteFollowersOnNewInterest({
           wrestlerId: wid,
           athleteName: wrestlerName,
-          eventName,
+          eventName: normalizedEventName,
           eventDate: eventDate || null,
           weightClass: weightClass || null,
           ageGroup: ageGroup || null,

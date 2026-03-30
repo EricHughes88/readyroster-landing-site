@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authConfig } from "@/auth.config";
 import { logAdminEvent } from "@/lib/adminAudit";
+import { normalizeEventName } from "@/lib/normalizeEventName";
 import { Pool } from "pg";
 
 export const runtime = "nodejs";
@@ -94,18 +95,38 @@ export async function PATCH(
     const body = await req.json().catch(() => ({}));
 
     const updates = {
-      event_name: clean(body?.event_name),
-      event_date: normalizeDate(body?.event_date),
-      weight_class: clean(body?.weight_class),
-      age_group: clean(body?.age_group), // 🔥 THIS fixes U15 issues
-      city: clean(body?.city),
-      state: clean(body?.state),
-      notes: clean(body?.notes),
+      event_name:
+        body?.event_name !== undefined
+          ? normalizeEventName(body.event_name)
+          : undefined,
+      event_date:
+        body?.event_date !== undefined
+          ? normalizeDate(body.event_date)
+          : undefined,
+      weight_class:
+        body?.weight_class !== undefined
+          ? clean(body.weight_class)
+          : undefined,
+      age_group:
+        body?.age_group !== undefined
+          ? clean(body.age_group)
+          : undefined,
+      city:
+        body?.city !== undefined
+          ? clean(body.city)
+          : undefined,
+      state:
+        body?.state !== undefined
+          ? clean(body.state)
+          : undefined,
+      notes:
+        body?.notes !== undefined
+          ? clean(body.notes)
+          : undefined,
       is_open:
         typeof body?.is_open === "boolean" ? body.is_open : undefined,
     };
 
-    // Build dynamic SQL (only update provided fields)
     const sets: string[] = [];
     const values: any[] = [];
     let i = 1;
@@ -136,7 +157,6 @@ export async function PATCH(
       return jsonError("Need not found", 404);
     }
 
-    // 🔥 Admin audit log
     if (adminUserId > 0) {
       try {
         await logAdminEvent({
@@ -198,7 +218,6 @@ export async function DELETE(
       return jsonError("Need not found", 404);
     }
 
-    // 🔥 audit log
     if (adminUserId > 0) {
       try {
         await logAdminEvent({
