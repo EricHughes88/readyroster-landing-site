@@ -47,5 +47,5 @@ export const footerContent: {
     },
   ],
 
-  copyright: `© ${new Date().getFullYear()} Ready Roster. All rights reserved.`,
+  copyright: `© ${new Date().getFullYear()} 3 STEP SPORTS LLC. All rights reserved.`,
 };

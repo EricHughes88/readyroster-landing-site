@@ -63,7 +63,7 @@ export default function Footer() {
         <div className="mt-10 border-t border-slate-800 pt-4 text-center text-xs text-slate-500">
           <p>{footerContent.copyright}</p>
           <p className="mt-2">
-            Secure platform. Your data is protected and handled in accordance with 3STEP policies.
+            Secure platform. Your data is protected and handled in accordance with 3 STEP SPORTS LLC policies.
           </p>
         </div>
       </div>
