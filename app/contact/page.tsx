@@ -10,12 +10,12 @@ export default function ContactPage() {
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
         <div>
           <p className="text-sm text-slate-400">Email</p>
-          <p className="text-white">support@readyroster.com</p>
+          <p className="text-white">support@itsreadyroster.com</p>
         </div>
 
         <div>
           <p className="text-sm text-slate-400">Phone</p>
-          <p className="text-white">(555) 555-5555</p>
+          <p className="text-white">(781) 722-0338</p>
         </div>
 
         <div>
